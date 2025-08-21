@@ -1,3 +1,9 @@
+# hide venv folders
+Scripts/
+Share/
+Docs/
+pyvenv.cfg
+
 # hide files and folders starting with .
 .*
 .*/
