@@ -14,9 +14,19 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+import datetime
+
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
+from django.http import JsonResponse
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+
+    # check server status
+    path('api/status', 
+         lambda request: JsonResponse(
+             data={'server status': 'up',
+                   'server datetime': datetime.datetime.now().ctime()}
+             , status=200)),
 ]
