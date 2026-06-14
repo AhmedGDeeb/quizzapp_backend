@@ -17,11 +17,28 @@ Including another URLconf
 import datetime
 
 from django.contrib import admin
+from rest_framework.routers import DefaultRouter
 from django.urls import path, include
 from django.http import JsonResponse
 
+from auth_api.views import RegisterView, LoginView, LogoutView, ProfileView, ChangePasswordView
+from rest_framework_simplejwt.views import TokenRefreshView
+
+router = DefaultRouter()
+
 urlpatterns = [
     path('admin/', admin.site.urls),
+
+    # Auth
+    path('api/auth/register/', RegisterView.as_view()),
+    path('api/auth/login/', LoginView.as_view()),
+    path('api/auth/refresh/', TokenRefreshView.as_view()),
+    path('api/auth/logout/', LogoutView.as_view()),
+    path('api/auth/profile/', ProfileView.as_view()),
+    path('api/auth/change-password/', ChangePasswordView.as_view()),
+
+    # Router URLs
+    path('api/', include(router.urls)),
 
     # check server status
     path('api/status', 
