@@ -37,6 +37,22 @@ urlpatterns = [
     path('api/auth/profile/', ProfileView.as_view()),
     path('api/auth/change-password/', ChangePasswordView.as_view()),
 
+    # Files
+    path('api/files/<int:file_id>/extracted-text/', lambda request: JsonResponse({}, status=200)),
+    
+    # Attempts
+    path('api/quizzes/<int:quiz_id>/start/', lambda request: JsonResponse({}, status=200)),
+    path('api/attempts/submit-answer/', lambda request: JsonResponse({}, status=200)),
+    path('api/attempts/<int:attempt_id>/complete/',lambda request: JsonResponse({}, status=200)),
+    path('api/attempts/', lambda request: JsonResponse({}, status=200)),
+    path('api/attempts/<int:attempt_id>/result/', lambda request: JsonResponse({}, status=200)),
+    path('api/quizzes/<int:quiz_id>/leaderboard/', lambda request: JsonResponse({}, status=200)),
+    
+    # Statistics
+    path('api/statistics/quizzes/<int:quiz_id>/', lambda request: JsonResponse({}, status=200)),
+    path('api/statistics/my-performance/', lambda request: JsonResponse({}, status=200)),
+    path('api/statistics/admin/', lambda request: JsonResponse({}, status=200)),
+
     # Router URLs
     path('api/', include(router.urls)),
 
