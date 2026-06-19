@@ -21,7 +21,12 @@ from rest_framework.routers import DefaultRouter
 from django.urls import path, include
 from django.http import JsonResponse
 
-from auth_api.views import RegisterView, LoginView, LogoutView, ProfileView, ChangePasswordView
+from auth_api.views import (
+    RegisterView, LoginView, LogoutView, ProfileView, ChangePasswordView,
+    VerifyEmailView, ResendVerificationView, RequestAccountDeletionView,
+    ReactivateAccountView, AccountStatusView
+)
+
 from rest_framework_simplejwt.views import TokenRefreshView
 
 router = DefaultRouter()
@@ -36,6 +41,15 @@ urlpatterns = [
     path('api/auth/logout/', LogoutView.as_view()),
     path('api/auth/profile/', ProfileView.as_view()),
     path('api/auth/change-password/', ChangePasswordView.as_view()),
+
+    # Email Verification
+    path('api/auth/verify-email/<str:token>/', VerifyEmailView.as_view()),
+    path('api/auth/resend-verification/', ResendVerificationView.as_view()),
+    
+    # Account Deletion & Reactivation
+    path('api/auth/request-deletion/', RequestAccountDeletionView.as_view()),
+    path('api/auth/reactivate/', ReactivateAccountView.as_view()),
+    path('api/auth/account-status/', AccountStatusView.as_view()),
 
     # Files
     path('api/files/<int:file_id>/extracted-text/', lambda request: JsonResponse({}, status=200)),
