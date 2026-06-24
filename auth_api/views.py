@@ -1,6 +1,16 @@
-from datetime import timedelta, timezone
+from datetime import timedelta
 
-from rest_framework import viewsets, generics, status
+from django.utils import timezone
+
+from .tokens import generate_verification_token
+from .email_utils import (
+    send_reactivation_email, send_account_deletion_notification,
+    send_account_deleted_notification
+)
+
+from django.contrib.auth import login, logout
+
+from rest_framework import views, generics, status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -96,7 +106,10 @@ class LoginView(generics.GenericAPIView):
         
         # Generate tokens
         refresh = RefreshToken.for_user(user)
-        
+
+        # login
+        login(request, user)
+
         return Response({
             'refresh': str(refresh),
             'access': str(refresh.access_token),
@@ -105,7 +118,7 @@ class LoginView(generics.GenericAPIView):
             'account_status': user.account_status
         })
 
-class LogoutView(generics.GenericAPIView):
+class LogoutView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -113,8 +126,13 @@ class LogoutView(generics.GenericAPIView):
             refresh_token = request.data.get('refresh')
             token = RefreshToken(refresh_token)
             token.blacklist()
+            
+            # logout from session
+            logout(request)
+
             return Response({'message': 'Logged out successfully'})
-        except Exception:
+        except Exception as e:
+            print(e)
             return Response({'error': 'Invalid token'}, status=status.HTTP_400_BAD_REQUEST)
 
 class ProfileView(generics.RetrieveUpdateAPIView):
@@ -123,6 +141,9 @@ class ProfileView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return self.request.user.profile
+    
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
 class ChangePasswordView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
@@ -253,7 +274,7 @@ class RequestAccountDeletionView(generics.GenericAPIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         deletion_date = timezone.now() + timedelta(days=90)
-        reactivation_token = generate_reactivation_token()
+        reactivation_token = generate_verification_token()
         
         user.account_status = 'deactivated'
         user.is_deleted = False
@@ -264,9 +285,8 @@ class RequestAccountDeletionView(generics.GenericAPIView):
         user.original_email = user.email
         user.save()
         
-        # Send emails
-        send_account_deletion_notification(user)
-        send_reactivation_email(user, reactivation_token, request)
+        # Send email
+        send_account_deletion_notification(user, reactivation_token, request)
         
         try:
             refresh_token = request.data.get('refresh')
@@ -342,26 +362,6 @@ class ReactivateAccountView(generics.GenericAPIView):
             'refresh': str(refresh),
             'access': str(refresh.access_token)
         })
-
-
-from rest_framework import generics, status
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.response import Response
-from rest_framework_simplejwt.tokens import RefreshToken
-from django.contrib.auth import authenticate
-from django.utils import timezone
-from datetime import timedelta
-from .models import User
-from .serializers import (
-    UserSerializer, UserProfileSerializer, RegisterSerializer,
-    LoginSerializer, ChangePasswordSerializer, EmailVerificationSerializer,
-    AccountDeletionSerializer, AccountReactivationSerializer, ResendVerificationSerializer
-)
-from .tokens import generate_reactivation_token
-from .email_utils import (
-    send_reactivation_email, send_account_deletion_notification,
-    send_account_deleted_notification
-)
 
 class AccountStatusView(generics.RetrieveAPIView):
     """

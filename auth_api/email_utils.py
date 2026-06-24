@@ -1,3 +1,5 @@
+import datetime
+
 from django.core.mail import send_mail
 from django.conf import settings
 import logging
@@ -28,7 +30,7 @@ Best regards,
 The QuizApp Team
 
 ---
-© 2024 QuizApp. All rights reserved.
+© {datetime.datetime.year} QuizApp. All rights reserved.
 This is an automated message, please do not reply to this email.
 """
         
@@ -46,25 +48,22 @@ This is an automated message, please do not reply to this email.
         logger.error(f"Failed to send verification email to {user.email}: {str(e)}")
         raise
 
-def send_reactivation_email(user, reactivation_token, request=None):
+def send_reactivation_email(user, reactivation_token, request):
     """
     Send account reactivation link to user (plain text only)
     """
     try:
-        if request:
-            reactivation_url = request.build_absolute_uri(
-                f'/api/auth/reactivate/{reactivation_token}/'
-            )
-            # else:
-            #     reactivation_url = f"{settings.BACKEND_URL}/api/auth/reactivate/{reactivation_token}/"
+        reactivation_url = request.build_absolute_uri(
+            f'/api/auth/reactivate/{reactivation_token}/'
+        )
         
-            days_remaining = user.get_deletion_grace_period_remaining()
-            days_remaining_str = days_remaining['days_remaining'] if days_remaining else 0
-            
-            subject = 'Reactivate your QuizApp account'
-            
-            # Plain text message
-            message = f"""
+        days_remaining = user.get_deletion_grace_period_remaining()
+        days_remaining_str = days_remaining['days_remaining'] if days_remaining else 0
+        
+        subject = 'Reactivate your QuizApp account'
+        
+        # Plain text message
+        message = f"""
 Hello {user.username},
 
 You requested to reactivate your QuizApp account.
@@ -83,29 +82,33 @@ Best regards,
 The QuizApp Team
 
 ---
-© 2024 QuizApp. All rights reserved.
+© {datetime.datetime.year} QuizApp. All rights reserved.
 This is an automated message, please do not reply to this email.
 """
             
-            send_mail(
-                subject=subject,
-                message=message,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.original_email or user.email],
-                fail_silently=False,
-            )
-            
-            logger.info(f"Reactivation email sent to {user.email}")
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.original_email or user.email],
+            fail_silently=False,
+        )
+        
+        logger.info(f"Reactivation email sent to {user.email}")
         
     except Exception as e:
         logger.error(f"Failed to send reactivation email to {user.email}: {str(e)}")
         raise
 
-def send_account_deletion_notification(user):
+def send_account_deletion_notification(user, reactivation_token, request):
     """
     Send notification that account deletion is scheduled (plain text only)
     """
     try:
+        reactivation_url = request.build_absolute_uri(
+            f'/api/auth/reactivate/{reactivation_token}/'
+        )
+
         days_remaining = user.get_deletion_grace_period_remaining()
         days_remaining_str = days_remaining['days_remaining'] if days_remaining else 0
         
@@ -125,7 +128,9 @@ What happens next?
 - After 90 days, all your data will be permanently deleted.
 - You'll receive a reactivation link in a separate email.
 
-If you want to reactivate your account, please use the link sent in the reactivation email.
+If you want to reactivate your account, please use this link:
+
+{reactivation_url}
 
 If you didn't request this deletion, please contact support immediately.
 
@@ -133,7 +138,7 @@ Best regards,
 The QuizApp Team
 
 ---
-© 2024 QuizApp. All rights reserved.
+© {datetime.datetime.year} QuizApp. All rights reserved.
 This is an automated message, please do not reply to this email.
 """
         
@@ -180,7 +185,7 @@ Best regards,
 The QuizApp Team
 
 ---
-© 2024 QuizApp. All rights reserved.
+© {datetime.datetime.year} QuizApp. All rights reserved.
 This is an automated message, please do not reply to this email.
 """
         

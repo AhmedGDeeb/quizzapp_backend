@@ -1,9 +1,13 @@
+import logging
+
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from .models import User, UserProfile
 from .tokens import generate_verification_token
 from .email_utils import send_verification_email
+
+logger = logging.getLogger(__name__)
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -30,40 +34,31 @@ class RegisterSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        validated_data.pop('password2')
-        
-        token = generate_verification_token()
-        
-        user = User.objects.create_user(
-            **validated_data,
-            account_status='pending',
-            email_verified=False,
-            verification_token=token,
-            verification_token_created_at=timezone.now()
-        )
-        UserProfile.objects.create(user=user)
-        
-        # Get request from context to build full URL
-        request = self.context.get('request')
-        if request:
-            # Build verification URL using request
-            verification_url = request.build_absolute_uri(
-                f'/api/auth/verify-email/{token}/'
-            )
-            # Or using reverse
-            # from django.urls import reverse
-            # verification_url = request.build_absolute_uri(
-            #     reverse('verify-email', kwargs={'token': token})
-            # )
-            # else:
-            #     # Fallback: build using settings
-            #     from django.conf import settings
-            #     verification_url = f"{settings.BACKEND_URL}/api/auth/verify-email/{token}/"
-        
-            # Pass the full URL to email utility
-            send_verification_email(user, verification_url)
+        try:
+            validated_data.pop('password2')
             
-            return user
+            token = generate_verification_token()
+            
+            user = User.objects.create_user(
+                **validated_data,
+                account_status='pending',
+                email_verified=False,
+                verification_token=token,
+                verification_token_created_at=timezone.now()
+            )
+            UserProfile.objects.create(user=user)
+            
+            # Get request from context to build full URL
+            request = self.context.get('request')
+            if request:
+                verification_url = request.build_absolute_uri(
+                    f'/api/auth/verify-email/{token}/'
+                )
+                send_verification_email(user, verification_url)
+                
+                return user
+        except Exception as e:
+            logger.exception("Error creating new user : %s", e)
 
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField(required=True)
@@ -164,7 +159,7 @@ class ResendVerificationSerializer(serializers.Serializer):
             })
         
         # Generate new token
-        from .tokens import generate_verification_token
+        
         token = generate_verification_token()
         user.verification_token = token
         user.verification_token_created_at = timezone.now()

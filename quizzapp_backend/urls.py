@@ -31,6 +31,12 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 router = DefaultRouter()
 
+def server_status(request):
+    return JsonResponse(
+             data={'server status': 'up',
+                   'server datetime': datetime.datetime.now().ctime()}
+             , status=200)
+
 urlpatterns = [
     path('admin/', admin.site.urls),
 
@@ -48,7 +54,7 @@ urlpatterns = [
     
     # Account Deletion & Reactivation
     path('api/auth/request-deletion/', RequestAccountDeletionView.as_view()),
-    path('api/auth/reactivate/', ReactivateAccountView.as_view()),
+    path('api/auth/reactivate/<str:token>/', ReactivateAccountView.as_view()),
     path('api/auth/account-status/', AccountStatusView.as_view()),
 
     # Files
@@ -71,9 +77,5 @@ urlpatterns = [
     path('api/', include(router.urls)),
 
     # check server status
-    path('api/status', 
-         lambda request: JsonResponse(
-             data={'server status': 'up',
-                   'server datetime': datetime.datetime.now().ctime()}
-             , status=200)),
+    path('api/status', server_status),
 ]
