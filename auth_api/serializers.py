@@ -27,6 +27,21 @@ class RegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ('username', 'email', 'password', 'password2')
+        extra_kwargs = {
+            'email': {
+                'required': True,
+                'allow_blank': False,
+            }
+        }
+
+    def validate_email(self, value):
+        """Check if email already exists (case-insensitive)"""
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError(
+                'A user with this email address already exists.'
+            )
+        return value.lower()  # Normalize email to lowercase
+
 
     def validate(self, attrs):
         if attrs['password'] != attrs['password2']:
@@ -37,6 +52,9 @@ class RegisterSerializer(serializers.ModelSerializer):
         try:
             validated_data.pop('password2')
             
+            # Ensure email is lowercase
+            validated_data['email'] = validated_data['email'].lower()
+
             token = generate_verification_token()
             
             user = User.objects.create_user(
@@ -65,12 +83,22 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(required=True, write_only=True)
     
     def validate(self, attrs):
-        username = attrs.get('username')
+        login_field = attrs.get('username') # can be username or email
         password = attrs.get('password')
         
         # Check if user exists
         try:
-            user = User.objects.get(username=username)
+            user = User.objects.get(username=login_field)
+
+            if not user:
+                user = User.objects.filter(email__iexact=login_field).first()
+
+            if not user:
+                raise serializers.ValidationError({
+                'error': 'Invalid credentials',
+                'code': 'invalid_credentials'
+            })
+              
         except User.DoesNotExist:
             raise serializers.ValidationError({
                 'error': 'Invalid credentials',
