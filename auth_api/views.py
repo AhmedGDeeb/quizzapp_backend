@@ -114,6 +114,7 @@ class LoginView(generics.GenericAPIView):
             'refresh': str(refresh),
             'access': str(refresh.access_token),
             'user': UserSerializer(user).data,
+            'role': user.role,
             'email_verified': user.email_verified,
             'account_status': user.account_status
         })
