@@ -6,6 +6,50 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def send_password_reset_email(user, reset_url):
+    """
+    Send password reset email to user (plain text only)
+    """
+    try:
+        subject = 'Password Reset - QuizApp'
+        
+        message = f"""
+Hello {user.username},
+
+We received a request to reset your password for your QuizApp account.
+
+Click this link to reset your password:
+
+{reset_url}
+
+This link will expire in 24 hours.
+
+If you didn't request a password reset, please ignore this email. Your password will not be changed.
+
+For security reasons, please do not share this link with anyone.
+
+Best regards,
+The QuizApp Team
+
+---
+© 2024 QuizApp. All rights reserved.
+This is an automated message, please do not reply to this email.
+"""
+        
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+        
+        logger.info(f"Password reset email sent to {user.email}")
+        
+    except Exception as e:
+        logger.error(f"Failed to send password reset email to {user.email}: {str(e)}")
+        raise
+
 def send_verification_email(user, verification_url):
     """
     Send email verification link to user (plain text only)

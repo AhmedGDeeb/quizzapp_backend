@@ -26,7 +26,8 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from auth_api.views import (
     RegisterView, LoginView, LogoutView, ProfileView, ChangePasswordView,
     VerifyEmailView, ResendVerificationView, RequestAccountDeletionView,
-    ReactivateAccountView, AccountStatusView
+    ReactivateAccountView, AccountStatusView, PasswordResetRequestView, 
+    PasswordResetConfirmView, PasswordResetCompleteView
 )
 
 from quizzes.views import QuizViewSet, QuestionViewSet, ChoiceViewSet
@@ -120,6 +121,10 @@ urlpatterns = [
     path('api/auth/request-deletion/', RequestAccountDeletionView.as_view()),
     path('api/auth/reactivate/<str:token>/', ReactivateAccountView.as_view()),
     path('api/auth/account-status/', AccountStatusView.as_view()),
+
+    # Account password reset
+    path('api/auth/reset-password/', PasswordResetRequestView.as_view(), name='password_reset_request'),
+    path('api/auth/reset-password/<str:token>/', PasswordResetConfirmView.as_view(), name='password_reset_confirm'),
 
     # Files
     path('api/files/<int:file_id>/extracted-text/', lambda request: JsonResponse({}, status=200)),

@@ -18,7 +18,8 @@ from django.contrib.auth import authenticate
 from auth_api.models import User
 from auth_api.serializers import (
     AccountReactivationSerializer, EmailVerificationSerializer, UserSerializer, UserProfileSerializer, RegisterSerializer,
-    LoginSerializer, ChangePasswordSerializer, AccountDeletionSerializer, ResendVerificationSerializer
+    LoginSerializer, ChangePasswordSerializer, AccountDeletionSerializer, ResendVerificationSerializer,
+    PasswordResetRequestSerializer, PasswordResetConfirmSerializer, PasswordResetCompleteSerializer
 )
 
 class RegisterView(generics.CreateAPIView):
@@ -562,3 +563,128 @@ class AccountStatusView(generics.RetrieveAPIView):
             })
         
         return actions
+
+class PasswordResetRequestView(generics.GenericAPIView):
+    """
+    Request password reset - sends email with reset link
+    POST /api/auth/reset-password/
+    """
+    permission_classes = [AllowAny]
+    serializer_class = PasswordResetRequestSerializer
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = serializer.save()
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class PasswordResetConfirmView(generics.GenericAPIView):
+    """
+    Password Reset Confirm View
+    """
+    permission_classes = [AllowAny]
+    serializer_class = PasswordResetCompleteSerializer
+
+    def get(self, request, token=None):
+        """GET: Validate token"""
+        if not token:
+            return Response({
+                'error': 'Reset token is required.',
+                'valid': False
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        user = User.objects.filter(reset_password_token=token).first()
+        
+        if not user:
+            return Response({
+                'error': 'Invalid or expired reset token.',
+                'valid': False
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not user.is_reset_token_valid():
+            return Response({
+                'error': 'Reset token has expired. Please request a new password reset.',
+                'valid': False,
+                'expired': True
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response({
+            'message': 'Token is valid. Please provide new password.',
+            'valid': True,
+            'email': user.email,
+            'username': user.username
+        })
+
+    def post(self, request, token=None):
+        """POST: Complete reset using serializer"""
+        # Add token to request data if not present
+        if token and not request.data.get('token'):
+            request.data._mutable = True
+            request.data['token'] = token
+            request.data._mutable = False
+        
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        user = serializer.validated_data['user']
+        new_password = serializer.validated_data['new_password']
+        
+        # Set new password
+        user.set_password(new_password)
+        user.reset_password_token = None
+        user.reset_password_token_created_at = None
+        user.save()
+        
+        # Generate new tokens
+        refresh = RefreshToken.for_user(user)
+        
+        return Response({
+            'message': 'Password has been reset successfully.',
+            'success': True,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email
+            },
+            'tokens': {
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+            }
+        }, status=status.HTTP_200_OK)
+
+
+class PasswordResetCompleteView(generics.GenericAPIView):
+    """
+    Complete password reset - set new password
+    POST /api/auth/reset-password/complete/
+    """
+    permission_classes = [AllowAny]
+    serializer_class = PasswordResetCompleteSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        user = serializer.validated_data['user']
+        new_password = serializer.validated_data['new_password']
+        
+        # Set new password
+        user.set_password(new_password)
+        user.reset_password_token = None
+        user.reset_password_token_created_at = None
+        user.save()
+        
+        # Generate new tokens for the user
+        refresh = RefreshToken.for_user(user)
+        
+        return Response({
+            'message': 'Password has been reset successfully.',
+            'refresh': str(refresh),
+            'access': str(refresh.access_token),
+        })

@@ -44,10 +44,26 @@ class User(AbstractUser):
     is_deleted = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(blank=True, null=True)
 
+    # reset email
+    reset_password_token = models.CharField(max_length=255, blank=True, null=True)
+    reset_password_token_created_at = models.DateTimeField(blank=True, null=True)
+
     class Meta:
         db_table = 'users'
 
-
+    def is_reset_token_valid(self):
+        """Check if reset token is valid (not expired)"""
+        if not self.reset_password_token_created_at:
+            return False
+        token_age = timezone.now() - self.reset_password_token_created_at
+        return token_age <= timedelta(hours=24)  # Token expires in 24 hours
+    
+    def clear_reset_token(self):
+        """Clear reset token after password reset"""
+        self.reset_password_token = None
+        self.reset_password_token_created_at = None
+        self.save()
+        
     def is_account_active(self):
         return self.account_status == 'active' and not self.is_deleted
 

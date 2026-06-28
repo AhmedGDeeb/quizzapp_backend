@@ -5,7 +5,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
 from .models import User, UserProfile
 from .tokens import generate_verification_token
-from .email_utils import send_verification_email
+from .email_utils import send_verification_email, send_password_reset_email
 
 logger = logging.getLogger(__name__)
 
@@ -209,3 +209,140 @@ class ResendVerificationSerializer(serializers.Serializer):
             
             attrs['message'] = 'Verification email has been resent. Please check your inbox.'
             return attrs
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    """
+    Serializer for requesting password reset
+    """
+    email = serializers.EmailField(required=True)
+
+    def validate_email(self, value):
+        value = value.lower()
+        user = User.objects.filter(email__iexact=value).first()
+        
+        if not user:
+            raise serializers.ValidationError(
+                'No user found with this email address.'
+            )
+        
+        # Check if user is active
+        if user.is_deleted:
+            raise serializers.ValidationError(
+                'This account has been permanently deleted.'
+            )
+        
+        if user.account_status == 'deactivated':
+            raise serializers.ValidationError(
+                'This account is deactivated. Please reactivate your account first.'
+            )
+        
+        return value
+
+    def create(self, validated_data):
+        email = validated_data['email']
+        user = User.objects.get(email=email)
+        
+        # Generate reset token
+        token = generate_verification_token()
+        user.reset_password_token = token
+        user.reset_password_token_created_at = timezone.now()
+        user.save()
+        
+        # Build reset URL
+        request = self.context.get('request')
+        if request:
+            reset_url = request.build_absolute_uri(
+                f'/api/auth/reset-password/{token}/'
+            )
+        else:
+            from django.conf import settings
+            reset_url = f"{settings.BACKEND_URL}/api/auth/reset-password/{token}/"
+        
+        # Send email
+        send_password_reset_email(user, reset_url)
+        
+        return {'message': 'Password reset email has been sent.'}
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    """
+    Serializer for confirming password reset with token
+    """
+    token = serializers.CharField(required=True)
+    new_password = serializers.CharField(required=True, validators=[validate_password])
+    confirm_password = serializers.CharField(required=True)
+
+    class Meta:
+        fields = ['token', 'new_password', 'confirm_password']
+        
+    def validate(self, attrs):
+        token = attrs.get('token')
+        new_password = attrs.get('new_password')
+        confirm_password = attrs.get('confirm_password')
+        
+        # Check if passwords match
+        if new_password != confirm_password:
+            raise serializers.ValidationError({
+                'confirm_password': 'Passwords do not match.'
+            })
+        
+        # Find user with this token
+        user = User.objects.filter(
+            reset_password_token=token
+        ).first()
+        
+        if not user:
+            raise serializers.ValidationError({
+                'token': 'Invalid or expired reset token.'
+            })
+        
+        # Check if token is expired (24 hours)
+        if not user.is_reset_token_valid():
+            raise serializers.ValidationError({
+                'token': 'Reset token has expired. Please request a new password reset.'
+            })
+        
+        # Check account status
+        if user.is_deleted:
+            raise serializers.ValidationError({
+                'error': 'This account has been permanently deleted.'
+            })
+        
+        if user.account_status == 'deactivated':
+            raise serializers.ValidationError({
+                'error': 'This account is deactivated. Please reactivate your account first.'
+            })
+        
+        # Store user for later use
+        attrs['user'] = user
+        return attrs
+
+
+class PasswordResetCompleteSerializer(serializers.Serializer):
+    """
+    Serializer for completing password reset
+    """
+    token = serializers.CharField(required=True)
+    new_password = serializers.CharField(required=True, validators=[validate_password])
+
+    def validate(self, attrs):
+        token = attrs.get('token')
+        
+        # Find user with this token
+        user = User.objects.filter(
+            reset_password_token=token
+        ).first()
+        
+        if not user:
+            raise serializers.ValidationError({
+                'token': 'Invalid or expired reset token.'
+            })
+        
+        # Check if token is expired (24 hours)
+        if not user.is_reset_token_valid():
+            raise serializers.ValidationError({
+                'token': 'Reset token has expired. Please request a new password reset.'
+            })
+        
+        attrs['user'] = user
+        return attrs
