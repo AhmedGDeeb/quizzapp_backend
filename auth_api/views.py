@@ -113,9 +113,14 @@ class LoginView(generics.GenericAPIView):
         return Response({
             'refresh': str(refresh),
             'access': str(refresh.access_token),
-            'user': UserSerializer(user).data,
-            'email_verified': user.email_verified,
-            'account_status': user.account_status
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'account_status': user.account_status,
+                'email_verified': user.email_verified,
+                'role': user.role,
+            }
         })
 
 class LogoutView(views.APIView):

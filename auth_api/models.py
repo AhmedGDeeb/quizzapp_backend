@@ -18,6 +18,12 @@ class User(AbstractUser):
         ('deleted', 'Deleted'),
     )
 
+    email = models.EmailField(unique=True,blank=False,null=False,
+        error_messages={
+            'unique': 'A user with this email already exists.',
+        }
+    )
+
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='student')
     
     account_status = models.CharField(max_length=20, choices=ACCOUNT_STATUS_CHOICES, default='pending')
