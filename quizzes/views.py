@@ -4,7 +4,6 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.shortcuts import get_object_or_404
 from django.db import transaction
-from django.db import models as django_models
 from .models import Quiz, Question, Choice
 from .serializers import (
     QuizSerializer, QuizDetailSerializer, QuizCreateUpdateSerializer,
@@ -29,9 +28,7 @@ class QuizViewSet(viewsets.ModelViewSet):
         
         # Instructor can see their own quizzes plus published ones
         if user.role == 'instructor':
-            return Quiz.objects.filter(
-                django_models.Q(creator=user) | django_models.Q(is_published=True)
-            ).distinct()
+            return Quiz.objects.filter(creator=user)
         
         # Students can only see published quizzes
         return Quiz.objects.filter(is_published=True)
