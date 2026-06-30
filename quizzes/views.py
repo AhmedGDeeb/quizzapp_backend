@@ -18,6 +18,7 @@ class QuizViewSet(viewsets.ModelViewSet):
     ViewSet for Quiz CRUD operations
     """
     permission_classes = [IsAuthenticated]
+    queryset = Quiz.objects.all()
     
     def get_queryset(self):
         user = self.request.user
@@ -142,7 +143,86 @@ class QuizViewSet(viewsets.ModelViewSet):
         serializer.save(quiz=quiz)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+    @action(detail=True, methods=['get'], url_path='questions')
+    def get_questions(self, request, pk=None):
+        """
+        GET /api/quizzes/{id}/questions/
+        Returns all questions and choices for a specific quiz
+        """
+        quiz = self.get_object()
+        
+        # Get all questions for this quiz ordered by order_index
+        questions = quiz.questions.all().order_by('order_index')
+        
+        # Serialize questions with their choices
+        serializer = QuestionSerializer(questions, many=True)
+        
+        return Response({
+            'quiz_id': quiz.id,
+            'quiz_title': quiz.title,
+            'total_questions': questions.count(),
+            'questions': serializer.data
+        })
 
+    @action(detail=True, methods=['get'], url_path='questions/detailed')
+    def get_questions_detailed(self, request, pk=None):
+        """
+        GET /api/quizzes/{id}/questions/detailed/
+        Returns detailed questions with choices and metadata
+        """
+        quiz = self.get_object()
+        
+        questions = quiz.questions.all().order_by('order_index')
+        
+        # Build custom response with all details
+        data = {
+            'quiz': {
+                'id': quiz.id,
+                'title': quiz.title,
+                'description': quiz.description,
+                'category': quiz.category,
+                'difficulty': quiz.difficulty,
+                'time_limit': quiz.time_limit,
+                'attempts_allowed': quiz.attempts_allowed,
+                'is_published': quiz.is_published,
+                'total_questions': questions.count(),
+                'total_points': quiz.total_points
+            },
+            'questions': []
+        }
+        
+        for question in questions:
+            question_data = {
+                'id': question.id,
+                'question_text': question.question_text,
+                'question_type': question.question_type,
+                'points': question.points,
+                'order_index': question.order_index,
+                'choices': [],
+                'correct_answer': None
+            }
+            
+            # Add choices for MCQ and True/False
+            if question.question_type in ['mcq', 'true_false']:
+                for choice in question.choices.all():
+                    question_data['choices'].append({
+                        'id': choice.id,
+                        'choice_text': choice.choice_text,
+                        'is_correct': choice.is_correct
+                    })
+            
+            # Add correct answer for short answer
+            if question.question_type == 'short_answer':
+                if hasattr(question, 'correct_answer'):
+                    question_data['correct_answer'] = {
+                        'id': question.correct_answer.id,
+                        'correct_answer_text': question.correct_answer.correct_answer_text
+                    }
+            
+            data['questions'].append(question_data)
+        
+        return Response(data)
+    
 class QuestionViewSet(viewsets.ModelViewSet):
     """
     ViewSet for Question CRUD operations
@@ -193,3 +273,41 @@ class ChoiceViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsInstructor]
     serializer_class = ChoiceSerializer
     queryset = Choice.objects.all()
+
+class QuizQuestionsView(generics.GenericAPIView):
+    """
+    GET /api/quizzes/{id}/questions/
+    Returns all questions and choices for a specific quiz
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, quiz_id):
+        # Get the quiz
+        quiz = get_object_or_404(Quiz, id=quiz_id)
+        
+        # Check permissions
+        user = request.user
+        if user.role != 'admin' and user.role != 'instructor':
+            if not quiz.is_published:
+                return Response({
+                    'error': 'This quiz is not published yet.'
+                }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get all questions for this quiz
+        questions = quiz.questions.all().order_by('order_index')
+        
+        # Serialize questions with their choices
+        serializer = QuestionSerializer(questions, many=True)
+        
+        return Response({
+            'quiz': {
+                'id': quiz.id,
+                'title': quiz.title,
+                'description': quiz.description,
+                'category': quiz.category,
+                'is_published': quiz.is_published,
+                'total_questions': questions.count(),
+                'total_points': quiz.total_points
+            },
+            'questions': serializer.data
+        })

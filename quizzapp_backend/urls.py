@@ -30,7 +30,7 @@ from auth_api.views import (
     PasswordResetConfirmView, PasswordResetCompleteView
 )
 
-from quizzes.views import QuizViewSet, QuestionViewSet, ChoiceViewSet
+from quizzes.views import QuizViewSet, QuestionViewSet, ChoiceViewSet, QuizQuestionsView
 
 router = DefaultRouter()
 
@@ -101,6 +101,8 @@ choice_detail = ChoiceViewSet.as_view({
     'delete': 'destroy'
 })
 
+quiz_questions_view = QuizQuestionsView.as_view()
+
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -137,7 +139,8 @@ urlpatterns = [
     path('api/quizzes/<int:pk>/duplicate/', quiz_duplicate, name='quiz-duplicate'),
     path('api/quizzes/<int:pk>/add_question/', quiz_add_question, name='quiz-add-question'),
     path('api/quizzes/my_quizzes/', quiz_my_quizzes, name='quiz-my-quizzes'),
-    
+    path('api/quizzes/<int:quiz_id>/questions/', quiz_questions_view, name='quiz-questions'),
+
     # Question URLs
     path('api/questions/', question_list, name='question-list'),
     path('api/questions/<int:pk>/', question_detail, name='question-detail'),
