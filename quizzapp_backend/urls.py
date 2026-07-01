@@ -31,6 +31,7 @@ from auth_api.views import (
 )
 
 from quizzes.views import QuizViewSet, QuestionViewSet, ChoiceViewSet, QuizQuestionsView
+from attempts.views import StartQuizView, SubmitAnswerView, CompleteQuizView, AttemptHistoryView, QuizResultView, leaderboard
 
 router = DefaultRouter()
 
@@ -150,12 +151,12 @@ urlpatterns = [
     path('api/choices/<int:pk>/', choice_detail, name='choice-detail'),
 
     # Attempts
-    # path('api/quizzes/<int:quiz_id>/start/', lambda request: JsonResponse({}, status=200)),
-    # path('api/attempts/submit-answer/', lambda request: JsonResponse({}, status=200)),
-    # path('api/attempts/<int:attempt_id>/complete/',lambda request: JsonResponse({}, status=200)),
-    # path('api/attempts/', lambda request: JsonResponse({}, status=200)),
-    # path('api/attempts/<int:attempt_id>/result/', lambda request: JsonResponse({}, status=200)),
-    # path('api/quizzes/<int:quiz_id>/leaderboard/', lambda request: JsonResponse({}, status=200)),
+    path('api/quizzes/<int:quiz_id>/start/', StartQuizView.as_view()),
+    path('api/attempts/submit-answer/', SubmitAnswerView.as_view()),
+    path('api/attempts/<int:attempt_id>/complete/', CompleteQuizView.as_view()),
+    path('api/attempts/', AttemptHistoryView.as_view()),
+    path('api/attempts/<int:attempt_id>/result/', QuizResultView.as_view()),
+    path('api/quizzes/<int:quiz_id>/leaderboard/', leaderboard),
     
     # # Statistics
     # path('api/statistics/quizzes/<int:quiz_id>/', lambda request: JsonResponse({}, status=200)),
