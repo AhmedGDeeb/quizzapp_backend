@@ -1,6 +1,8 @@
+from django.utils import timezone
+
 from rest_framework import serializers
 from .models import QuizAttempt, UserAnswer
-from quizzes.models import Quiz
+from quizzes.models import Quiz, Question, Choice
 
 class QuizAttemptSerializer(serializers.ModelSerializer):
     quiz_title = serializers.CharField(source='quiz.title', read_only=True)
@@ -76,25 +78,57 @@ class QuizCompleteSerializer(serializers.ModelSerializer):
         correct_answers = instance.answers.filter(is_correct=True).count()
         score = (correct_answers / total_questions * 100) if total_questions > 0 else 0
         
-        # Update the instance
+        # Update the instances
         instance.score = score
         instance.status = 'completed'
         instance.end_time = timezone.now()
         instance.save()
         
         return instance
-        
+
 class SubmitAnswerSerializer(serializers.Serializer):
-    attempt_id = serializers.IntegerField()
-    question_id = serializers.IntegerField()
+    """Serializer for submitting an answer"""
+    
+    attempt_id = serializers.IntegerField(required=True)
+    question_id = serializers.IntegerField(required=True)
     selected_choice_id = serializers.IntegerField(required=False, allow_null=True)
-    text_answer = serializers.CharField(required=False, allow_blank=True)
+    text_answer = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     def validate(self, attrs):
-        if not attrs.get('selected_choice_id') and not attrs.get('text_answer'):
-            raise serializers.ValidationError("Either selected_choice_id or text_answer is required")
+        attempt_id = attrs.get('attempt_id')
+        question_id = attrs.get('question_id')
+        selected_choice_id = attrs.get('selected_choice_id')
+        text_answer = attrs.get('text_answer')
+        
+        # Get question to check its type
+        try:
+            question = Question.objects.get(id=question_id)
+        except Question.DoesNotExist:
+            raise serializers.ValidationError({'question_id': 'Question does not exist.'})
+        
+        # Validate based on question type
+        if question.question_type in ['mcq', 'true_false']:
+            if not selected_choice_id:
+                raise serializers.ValidationError({
+                    'selected_choice_id': 'This field is required for MCQ and True/False questions.'
+                })
+            # Check if choice belongs to the question
+            try:
+                choice = Choice.objects.get(id=selected_choice_id, question=question)
+                attrs['choice'] = choice
+            except Choice.DoesNotExist:
+                raise serializers.ValidationError({
+                    'selected_choice_id': 'Choice does not belong to this question.'
+                })
+        elif question.question_type == 'short_answer':
+            if not text_answer:
+                raise serializers.ValidationError({
+                    'text_answer': 'This field is required for short answer questions.'
+                })
+        
+        attrs['question'] = question
         return attrs
-
+    
 class QuizResultSerializer(serializers.ModelSerializer):
     quiz_title = serializers.CharField(source='quiz.title')
     total_questions = serializers.SerializerMethodField()

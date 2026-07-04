@@ -25,6 +25,8 @@ class StartQuizView(generics.CreateAPIView):
         serializer = QuizAttemptSerializer(attempt)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+# views.py - Enhanced version with all correct choices
+
 class SubmitAnswerView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = SubmitAnswerSerializer
@@ -33,29 +35,74 @@ class SubmitAnswerView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        attempt = get_object_or_404(QuizAttempt, id=serializer.validated_data['attempt_id'], user=request.user)
+        attempt = get_object_or_404(
+            QuizAttempt, 
+            id=serializer.validated_data['attempt_id'], 
+            user=request.user
+        )
         
         if attempt.status != 'in_progress':
-            return Response({'error': 'Quiz already completed'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {'error': 'Quiz already completed'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
-        question = get_object_or_404(Question, id=serializer.validated_data['question_id'], quiz=attempt.quiz)
+        question = serializer.validated_data['question']
         
         # Check if answer already exists
-        existing_answer = UserAnswer.objects.filter(attempt=attempt, question=question).first()
+        existing_answer = UserAnswer.objects.filter(
+            attempt=attempt, 
+            question=question
+        ).first()
         
-        # Determine if answer is correct
+        # Initialize variables
         is_correct = False
         selected_choice = None
-        if serializer.validated_data.get('selected_choice_id'):
-            selected_choice = get_object_or_404(Choice, id=serializer.validated_data['selected_choice_id'], question=question)
-            is_correct = selected_choice.is_correct
-            text_answer = None
-        else:
-            text_answer = serializer.validated_data.get('text_answer')
-            # For short answer, check against correct answer
-            if question.correct_answer:
-                is_correct = text_answer.strip().lower() == question.correct_answer.correct_answer_text.strip().lower()
+        text_answer = None
+        correct_answer_text = None
+        correct_choices_data = []
         
+        # Handle MCQ and True/False
+        if question.question_type in ['mcq', 'true_false']:
+            selected_choice = serializer.validated_data.get('choice')
+            if selected_choice:
+                is_correct = selected_choice.is_correct
+                text_answer = selected_choice.choice_text
+                
+                # Get all correct choices for MCQ/True/False
+                correct_choices = question.choices.filter(is_correct=True)
+                correct_choices_data = [
+                    {
+                        'id': c.id,
+                        'choice_text': c.choice_text
+                    } 
+                    for c in correct_choices
+                ]
+                
+                if correct_choices.exists():
+                    correct_answer_text = ", ".join([c.choice_text for c in correct_choices])
+                else:
+                    correct_answer_text = None
+        else:
+            # Handle short answer
+            text_answer = serializer.validated_data.get('text_answer', '').strip()
+            
+            # Get correct answer for short answer
+            if hasattr(question, 'correct_answer') and question.correct_answer:
+                correct_answer_text = question.correct_answer.correct_answer_text.strip()
+                correct_choices_data = [
+                    {
+                        'id': question.correct_answer.id,
+                        'correct_answer_text': correct_answer_text
+                    }
+                ]
+                # Case-insensitive comparison
+                is_correct = text_answer.lower() == correct_answer_text.lower()
+            else:
+                # If no correct answer defined, mark as incorrect
+                is_correct = False
+        
+        # Update or create answer
         if existing_answer:
             existing_answer.selected_choice = selected_choice
             existing_answer.text_answer = text_answer
@@ -71,8 +118,30 @@ class SubmitAnswerView(generics.GenericAPIView):
                 is_correct=is_correct
             )
         
-        return Response({'correct': is_correct, 'message': 'Answer recorded'})
-
+        # Calculate statistics
+        total_correct = UserAnswer.objects.filter(
+            attempt=attempt, 
+            is_correct=True
+        ).count()
+        
+        total_answered = UserAnswer.objects.filter(
+            attempt=attempt
+        ).count()
+        
+        return Response({
+            'correct': is_correct,
+            'message': 'Answer recorded',
+            'user_answer': text_answer,
+            'correct_answer': correct_answer_text,
+            'correct_choices': correct_choices_data,  # Detailed correct choices
+            'attempt_id': attempt.id,
+            'question_id': question.id,
+            'question_type': question.question_type,
+            'total_correct': total_correct,
+            'total_answered': total_answered,
+            'total_questions': attempt.quiz.questions.count()
+        }, status=status.HTTP_200_OK)
+    
 class CompleteQuizView(generics.GenericAPIView):
     """
     API view to complete a quiz attempt.
