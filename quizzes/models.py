@@ -60,19 +60,31 @@ class Question(models.Model):
     quiz = models.ForeignKey(
         Quiz, 
         on_delete=models.CASCADE, 
-        related_name='questions'
+        related_name='questions',
+        null=True,
+        blank=True
     )
     question_text = models.TextField()
     question_type = models.CharField(max_length=20, choices=QUESTION_TYPES, default='mcq')
     points = models.IntegerField(default=1, validators=[MinValueValidator(1)])
     order_index = models.IntegerField(default=0)
+    creator = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='created_questions',
+        null=True,  # Allow for existing questions
+        blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = 'questions'
         ordering = ['order_index']
 
     def __str__(self):
-        return f"{self.quiz.title} - Q{self.order_index + 1}: {self.question_text[:50]}"
+        quiz_title = self.quiz.title if self.quiz else "Standalone"
+        return f"{quiz_title} - Q{self.order_index + 1}: {self.question_text[:50]}"
 
     @property
     def has_choices(self):
@@ -83,6 +95,11 @@ class Question(models.Model):
     def choices_count(self):
         """Return number of choices for this question"""
         return self.choices.count()
+    
+    @property
+    def is_standalone(self):
+        """Check if this question is not assigned to any quiz"""
+        return self.quiz is None
 
 
 class Choice(models.Model):
