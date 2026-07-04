@@ -91,13 +91,18 @@ class SubmitAnswerSerializer(serializers.Serializer):
     
     attempt_id = serializers.IntegerField(required=True)
     question_id = serializers.IntegerField(required=True)
-    selected_choice_id = serializers.IntegerField(required=False, allow_null=True)
+    selected_choice_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True,
+        help_text="List of choice IDs for MCQ/True-False questions"
+    )
     text_answer = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     def validate(self, attrs):
         attempt_id = attrs.get('attempt_id')
         question_id = attrs.get('question_id')
-        selected_choice_id = attrs.get('selected_choice_id')
+        selected_choice_ids = attrs.get('selected_choice_ids', [])
         text_answer = attrs.get('text_answer')
         
         # Get question to check its type
@@ -108,19 +113,29 @@ class SubmitAnswerSerializer(serializers.Serializer):
         
         # Validate based on question type
         if question.question_type in ['mcq', 'true_false']:
-            if not selected_choice_id:
+            # For MCQ/True-False, selected_choice_ids is required
+            if not selected_choice_ids:
                 raise serializers.ValidationError({
-                    'selected_choice_id': 'This field is required for MCQ and True/False questions.'
+                    'selected_choice_ids': 'This field is required for MCQ and True/False questions.'
                 })
-            # Check if choice belongs to the question
-            try:
-                choice = Choice.objects.get(id=selected_choice_id, question=question)
-                attrs['choice'] = choice
-            except Choice.DoesNotExist:
+            
+            # Check if all choices belong to the question
+            choices = Choice.objects.filter(id__in=selected_choice_ids, question=question)
+            if choices.count() != len(selected_choice_ids):
                 raise serializers.ValidationError({
-                    'selected_choice_id': 'Choice does not belong to this question.'
+                    'selected_choice_ids': 'One or more choices do not belong to this question.'
                 })
+            
+            # For True/False, only allow 1 choice
+            if question.question_type == 'true_false' and len(selected_choice_ids) != 1:
+                raise serializers.ValidationError({
+                    'selected_choice_ids': 'True/False questions only allow one selection.'
+                })
+            
+            attrs['choices'] = choices
+            
         elif question.question_type == 'short_answer':
+            # For Short Answer, text_answer is required
             if not text_answer:
                 raise serializers.ValidationError({
                     'text_answer': 'This field is required for short answer questions.'

@@ -57,64 +57,65 @@ class SubmitAnswerView(generics.GenericAPIView):
         
         # Initialize variables
         is_correct = False
-        selected_choice = None
+        selected_choices = []
+        selected_choice_ids = []
         text_answer = None
         correct_answer_text = None
-        correct_choices_data = []
+        user_answer_text = None
         
-        # Handle MCQ and True/False
+        # Handle based on question type
         if question.question_type in ['mcq', 'true_false']:
-            selected_choice = serializer.validated_data.get('choice')
-            if selected_choice:
-                is_correct = selected_choice.is_correct
-                text_answer = selected_choice.choice_text
+            # Get selected choices
+            selected_choices = serializer.validated_data.get('choices', [])
+            selected_choice_ids = [choice.id for choice in selected_choices]
+            
+            # Get all correct choices for this question
+            correct_choices = question.choices.filter(is_correct=True)
+            correct_choice_ids = set(correct_choices.values_list('id', flat=True))
+            selected_choice_ids_set = set(selected_choice_ids)
+            
+            # Check if selected choices match correct choices exactly
+            is_correct = selected_choice_ids_set == correct_choice_ids
+            
+            # Create user answer text (join selected choices)
+            user_answer_text = ", ".join([choice.choice_text for choice in selected_choices])
+            
+            # Get correct answer text
+            if correct_choices.exists():
+                correct_answer_text = ", ".join([c.choice_text for c in correct_choices])
+            else:
+                correct_answer_text = None
                 
-                # Get all correct choices for MCQ/True/False
-                correct_choices = question.choices.filter(is_correct=True)
-                correct_choices_data = [
-                    {
-                        'id': c.id,
-                        'choice_text': c.choice_text
-                    } 
-                    for c in correct_choices
-                ]
-                
-                if correct_choices.exists():
-                    correct_answer_text = ", ".join([c.choice_text for c in correct_choices])
-                else:
-                    correct_answer_text = None
         else:
             # Handle short answer
             text_answer = serializer.validated_data.get('text_answer', '').strip()
+            user_answer_text = text_answer
             
             # Get correct answer for short answer
             if hasattr(question, 'correct_answer') and question.correct_answer:
                 correct_answer_text = question.correct_answer.correct_answer_text.strip()
-                correct_choices_data = [
-                    {
-                        'id': question.correct_answer.id,
-                        'correct_answer_text': correct_answer_text
-                    }
-                ]
                 # Case-insensitive comparison
                 is_correct = text_answer.lower() == correct_answer_text.lower()
             else:
-                # If no correct answer defined, mark as incorrect
                 is_correct = False
+        
+        # Store selected choice IDs as comma-separated string
+        stored_choices = ",".join(map(str, selected_choice_ids)) if selected_choice_ids else None
         
         # Update or create answer
         if existing_answer:
-            existing_answer.selected_choice = selected_choice
-            existing_answer.text_answer = text_answer
+            existing_answer.selected_choice = None
+            existing_answer.selected_choice_ids = stored_choices
+            existing_answer.text_answer = user_answer_text
             existing_answer.is_correct = is_correct
             existing_answer.save()
-            answer = existing_answer
         else:
-            answer = UserAnswer.objects.create(
+            UserAnswer.objects.create(
                 attempt=attempt,
                 question=question,
-                selected_choice=selected_choice,
-                text_answer=text_answer,
+                selected_choice=None,
+                selected_choice_ids=stored_choices,
+                text_answer=user_answer_text,
                 is_correct=is_correct
             )
         
@@ -128,19 +129,27 @@ class SubmitAnswerView(generics.GenericAPIView):
             attempt=attempt
         ).count()
         
-        return Response({
+        # Build response based on question type
+        response_data = {
             'correct': is_correct,
             'message': 'Answer recorded',
-            'user_answer': text_answer,
+            'user_answer': user_answer_text,
             'correct_answer': correct_answer_text,
-            'correct_choices': correct_choices_data,  # Detailed correct choices
             'attempt_id': attempt.id,
             'question_id': question.id,
             'question_type': question.question_type,
             'total_correct': total_correct,
             'total_answered': total_answered,
             'total_questions': attempt.quiz.questions.count()
-        }, status=status.HTTP_200_OK)
+        }
+        
+        # Add question-type specific fields
+        if question.question_type in ['mcq', 'true_false']:
+            response_data['selected_choice_ids'] = selected_choice_ids
+        else:
+            response_data['text_answer'] = text_answer
+        
+        return Response(response_data, status=status.HTTP_200_OK)
     
 class CompleteQuizView(generics.GenericAPIView):
     """
