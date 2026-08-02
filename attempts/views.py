@@ -55,9 +55,10 @@ class SubmitAnswerView(generics.GenericAPIView):
             question=question
         ).first()
         
+        selected_choice_ids = serializer.validated_data.get('selected_choice_ids', [])
+
         # Initialize variables
         is_correct = False
-        selected_choices = []
         selected_choice_ids = []
         text_answer = None
         correct_answer_text = None
@@ -65,10 +66,6 @@ class SubmitAnswerView(generics.GenericAPIView):
         
         # Handle based on question type
         if question.question_type in ['mcq', 'true_false']:
-            # Get selected choices
-            selected_choices = serializer.validated_data.get('choices', [])
-            selected_choice_ids = [choice.id for choice in selected_choices]
-            
             # Get all correct choices for this question
             correct_choices = question.choices.filter(is_correct=True)
             correct_choice_ids = set(correct_choices.values_list('id', flat=True))
@@ -100,12 +97,12 @@ class SubmitAnswerView(generics.GenericAPIView):
                 is_correct = False
         
         # Store selected choice IDs as comma-separated string
-        stored_choices = ",".join(map(str, selected_choice_ids)) if selected_choice_ids else None
+        selected_choice_ids = serializer.validated_data.get('selected_choice_ids', [])
         
         # Update or create answer
         if existing_answer:
             existing_answer.selected_choice = None
-            existing_answer.selected_choice_ids = stored_choices
+            existing_answer.selected_choice_ids = selected_choice_ids
             existing_answer.text_answer = user_answer_text
             existing_answer.is_correct = is_correct
             existing_answer.save()
@@ -114,7 +111,7 @@ class SubmitAnswerView(generics.GenericAPIView):
                 attempt=attempt,
                 question=question,
                 selected_choice=None,
-                selected_choice_ids=stored_choices,
+                selected_choice_ids=selected_choice_ids,
                 text_answer=user_answer_text,
                 is_correct=is_correct
             )

@@ -26,7 +26,11 @@ class UserAnswer(models.Model):
     text_answer = models.TextField(null=True, blank=True)
     is_correct = models.BooleanField(default=False)
     answered_at = models.DateTimeField(auto_now_add=True)
-
+    selected_choice_ids = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of selected choice IDs"
+    )
     class Meta:
         db_table = 'user_answers'
         unique_together = ['attempt', 'question']
