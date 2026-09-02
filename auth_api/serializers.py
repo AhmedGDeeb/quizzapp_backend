@@ -16,10 +16,17 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'date_joined', 'account_status', 'email_verified')
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    username = serializers.SerializerMethodField()
+    email = serializers.SerializerMethodField()
     class Meta:
         model = UserProfile
-        fields = ('bio', 'specialization', 'preferred_language', 'notification_settings')
-
+        fields = ('username', 'email', 'bio', 'specialization', 'preferred_language', 'notification_settings', 'profile_image')
+    def get_username(self, obj):
+        return obj.user.username
+    
+    def get_email(self, obj):
+        return obj.user.email
+    
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, validators=[validate_password])
     password2 = serializers.CharField(write_only=True, required=True)
@@ -85,20 +92,19 @@ class LoginSerializer(serializers.Serializer):
     def validate(self, attrs):
         login_field = attrs.get('username') # can be username or email
         password = attrs.get('password')
-        
         # Check if user exists
         try:
-            user = User.objects.get(username=login_field)
-
+            try:
+                user = User.objects.get(username=login_field)
+            except User.DoesNotExist:
+                user = None
             if not user:
                 user = User.objects.filter(email__iexact=login_field).first()
-
             if not user:
                 raise serializers.ValidationError({
                 'error': 'Invalid credentials',
                 'code': 'invalid_credentials'
             })
-              
         except User.DoesNotExist:
             raise serializers.ValidationError({
                 'error': 'Invalid credentials',
@@ -136,7 +142,7 @@ class LoginSerializer(serializers.Serializer):
                     'code': 'account_deleted',
                     'can_reactivate': False
                 })
-        
+            
         # Check password
         if not user.check_password(password):
             raise serializers.ValidationError({
@@ -151,9 +157,11 @@ class LoginSerializer(serializers.Serializer):
                 'code': 'account_inactive',
                 'account_status': user.account_status
             })
+
+        attrs['user'] = user
         
         return attrs
-
+    
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(required=True)
     new_password = serializers.CharField(required=True, validators=[validate_password])

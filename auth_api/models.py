@@ -110,6 +110,7 @@ class UserProfile(models.Model):
     specialization = models.CharField(max_length=100, blank=True)
     preferred_language = models.CharField(max_length=10, default='en')
     notification_settings = models.JSONField(default=dict)
+    profile_image = models.ImageField(upload_to='profile_images/', blank=True, null=True)
     
     class Meta:
         db_table = 'user_profiles'

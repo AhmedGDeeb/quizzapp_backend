@@ -35,82 +35,20 @@ class RegisterView(generics.CreateAPIView):
 class LoginView(generics.GenericAPIView):
     serializer_class = LoginSerializer
     permission_classes = [AllowAny]
-
+    
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        username = serializer.validated_data['username']
-        password = serializer.validated_data['password']
-        
-        # First, try to find the user
-        try:
-            user = User.objects.get(username=username)
-        except User.DoesNotExist:
-            return Response({
-                'error': 'Invalid credentials',
-                'code': 'invalid_credentials'
-            }, status=status.HTTP_401_UNAUTHORIZED)
-        
-        # Check if account is deleted
-        if user.is_deleted:
-            return Response({
-                'error': 'This account has been permanently deleted.',
-                'code': 'account_deleted'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        # Check account status
-        if user.account_status == 'pending':
-            return Response({
-                'error': 'Please verify your email address before logging in.',
-                'code': 'email_not_verified',
-                'email': user.email,
-                'can_resend_verification': True
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        if user.account_status == 'deactivated':
-            # Check if within 90-day grace period
-            if user.can_reactivate():
-                days_remaining = user.get_deletion_grace_period_remaining()
-                return Response({
-                    'error': 'Your account has been deactivated and is scheduled for deletion.',
-                    'code': 'account_deactivated',
-                    'can_reactivate': True,
-                    'days_remaining': days_remaining['days_remaining'] if days_remaining else 0,
-                    'deletion_date': user.deletion_scheduled_date,
-                    'message': f'You have {days_remaining["days_remaining"] if days_remaining else 0} days to reactivate your account.'
-                }, status=status.HTTP_403_FORBIDDEN)
-            else:
-                return Response({
-                    'error': 'Your account has been permanently deleted.',
-                    'code': 'account_deleted',
-                    'can_reactivate': False,
-                    'message': 'The 90-day grace period has expired.'
-                }, status=status.HTTP_403_FORBIDDEN)
-        
-        # Account is active, check password
-        user = authenticate(username=username, password=password)
-        
-        if not user:
-            return Response({
-                'error': 'Invalid credentials',
-                'code': 'invalid_credentials'
-            }, status=status.HTTP_401_UNAUTHORIZED)
-        
-        # Check if user is still active (might have been deactivated during authentication)
-        if not user.is_account_active():
-            return Response({
-                'error': 'Account is not active.',
-                'code': 'account_inactive',
-                'account_status': user.account_status
-            }, status=status.HTTP_403_FORBIDDEN)
+        # Get the authenticated user from the serializer
+        user = serializer.validated_data.get('user')
         
         # Generate tokens
         refresh = RefreshToken.for_user(user)
-
-        # login
+        
+        # Login the user (for session-based auth if needed)
         login(request, user)
-
+        
         return Response({
             'refresh': str(refresh),
             'access': str(refresh.access_token),
@@ -150,6 +88,18 @@ class ProfileView(generics.RetrieveUpdateAPIView):
     
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        return Response(serializer.data)
+    
+    def perform_update(self, serializer):
+        serializer.save()
 
 class ChangePasswordView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]

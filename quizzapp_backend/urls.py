@@ -22,6 +22,9 @@ from django.http import JsonResponse
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 
+from django.conf import settings
+from django.conf.urls.static import static
+
 # Auth imports
 from auth_api.views import (
     RegisterView, LoginView, LogoutView, ProfileView, ChangePasswordView,
@@ -224,4 +227,4 @@ urlpatterns = [
 
     # ==================== Server Status ====================
     path('api/status', server_status, name='server-status'),
-]
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
