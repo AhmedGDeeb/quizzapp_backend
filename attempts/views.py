@@ -73,6 +73,9 @@ class SubmitAnswerView(generics.GenericAPIView):
             
             # Check if selected choices match correct choices exactly
             is_correct = selected_choice_ids_set == correct_choice_ids
+
+            # Create user answer text (join selected choices)
+            selected_choices = Choice.objects.filter(id__in=selected_choice_ids)
             
             # Create user answer text (join selected choices)
             user_answer_text = ", ".join([choice.choice_text for choice in selected_choices])
