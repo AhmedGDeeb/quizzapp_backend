@@ -2,7 +2,7 @@ from django.utils import timezone
 
 from rest_framework import serializers
 from .models import QuizAttempt, UserAnswer
-from quizzes.models import Quiz, Question, Choice
+from quizzes.models import Quiz, Question, Choice, Answer
 
 class QuizAttemptSerializer(serializers.ModelSerializer):
     quiz_title = serializers.CharField(source='quiz.title', read_only=True)
@@ -158,3 +158,180 @@ class QuizResultSerializer(serializers.ModelSerializer):
     
     def get_correct_answers(self, obj):
         return obj.answers.filter(is_correct=True).count()
+
+class ChoiceSerializer(serializers.ModelSerializer):
+    """Serializer for choice options"""
+    class Meta:
+        model = Choice
+        fields = ('id', 'choice_text', 'is_correct')
+
+class AnswerSerializer(serializers.ModelSerializer):
+    """Serializer for correct answer (for short answer questions)"""
+    class Meta:
+        model = Answer
+        fields = ('id', 'correct_answer_text')
+
+class QuestionSerializer(serializers.ModelSerializer):
+    """Serializer for questions with choices and correct answer"""
+    choices = ChoiceSerializer(many=True, read_only=True)
+    correct_answer = AnswerSerializer(read_only=True)
+    
+    class Meta:
+        model = Question
+        fields = (
+            'id', 
+            'question_text', 
+            'question_type', 
+            'points', 
+            'order_index',
+            'choices',
+            'correct_answer'
+        )
+
+class UserAnswerSerializer(serializers.ModelSerializer):
+    """Serializer for user's answers"""
+    question_text = serializers.CharField(source='question.question_text', read_only=True)
+    selected_choice_text = serializers.SerializerMethodField()
+    selected_choice_ids = serializers.JSONField(read_only=True)
+    
+    class Meta:
+        model = UserAnswer
+        fields = (
+            'id',
+            'question',
+            'question_text',
+            'selected_choice',
+            'selected_choice_ids',
+            'selected_choice_text',
+            'text_answer',
+            'is_correct',
+            'answered_at'
+        )
+    
+    def get_selected_choice_text(self, obj):
+        """Get the text of the selected choice(s)"""
+        if obj.selected_choice:
+            return obj.selected_choice.choice_text
+        elif obj.selected_choice_ids:
+            choices = Choice.objects.filter(id__in=obj.selected_choice_ids)
+            return [choice.choice_text for choice in choices]
+        return None
+    
+class QuizAttemptResultSerializer(serializers.ModelSerializer):
+    """Main serializer for quiz attempt results"""
+    quiz_title = serializers.CharField(source='quiz.title', read_only=True)
+    quiz_description = serializers.CharField(source='quiz.description', read_only=True)
+    quiz_category = serializers.CharField(source='quiz.category', read_only=True)
+    creator_name = serializers.SerializerMethodField()
+    total_questions = serializers.SerializerMethodField()
+    total_points = serializers.SerializerMethodField()
+    correct_answers = serializers.SerializerMethodField()
+    incorrect_answers = serializers.SerializerMethodField()
+    unanswered_questions = serializers.SerializerMethodField()
+    score_percentage = serializers.SerializerMethodField()
+    time_taken = serializers.SerializerMethodField()
+    questions_with_answers = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = QuizAttempt
+        fields = (
+            'id',
+            'quiz',
+            'quiz_title',
+            'quiz_description',
+            'quiz_category',
+            'creator_name',
+            'user',
+            'start_time',
+            'end_time',
+            'time_taken',
+            'score',
+            'score_percentage',
+            'status',
+            'total_questions',
+            'total_points',
+            'correct_answers',
+            'incorrect_answers',
+            'unanswered_questions',
+            'questions_with_answers'
+        )
+    
+    def get_creator_name(self, obj):
+        """Get the name of the quiz creator"""
+        creator = obj.quiz.creator
+        if creator.first_name and creator.last_name:
+            return f"{creator.first_name} {creator.last_name}"
+        return creator.username
+    
+    def get_total_questions(self, obj):
+        return obj.quiz.question_count
+    
+    def get_total_points(self, obj):
+        return obj.quiz.total_points
+    
+    def get_correct_answers(self, obj):
+        return obj.answers.filter(is_correct=True).count()
+    
+    def get_incorrect_answers(self, obj):
+        return obj.answers.filter(is_correct=False).count()
+    
+    def get_unanswered_questions(self, obj):
+        total = obj.quiz.question_count
+        answered = obj.answers.count()
+        return total - answered
+    
+    def get_score_percentage(self, obj):
+        total_points = obj.quiz.total_points
+        if total_points == 0:
+            return 0
+        return (obj.score / total_points) * 100
+    
+    def get_time_taken(self, obj):
+        """Calculate time taken to complete the quiz"""
+        if obj.end_time and obj.start_time:
+            duration = obj.end_time - obj.start_time
+            minutes = duration.total_seconds() // 60
+            seconds = duration.total_seconds() % 60
+            return {
+                'minutes': int(minutes),
+                'seconds': int(seconds),
+                'total_seconds': duration.total_seconds()
+            }
+        return None
+    
+    def get_questions_with_answers(self, obj):
+        """Get all questions with user's answers"""
+        questions = obj.quiz.get_questions_ordered().prefetch_related('choices', 'correct_answer')
+        user_answers = {answer.question_id: answer for answer in obj.answers.all()}
+        
+        question_data = []
+        for question in questions:
+            user_answer = user_answers.get(question.id)
+            
+            data = {
+                'id': question.id,
+                'question_text': question.question_text,
+                'question_type': question.question_type,
+                'points': question.points,
+                'order_index': question.order_index,
+                'choices': ChoiceSerializer(question.choices.all(), many=True).data,
+                'correct_answer': AnswerSerializer(question.correct_answer).data if hasattr(question, 'correct_answer') else None,
+                'user_answer': UserAnswerSerializer(user_answer).data if user_answer else None,
+                'is_correct': user_answer.is_correct if user_answer else None,
+                'correct_choices': [
+                    {'id': choice.id, 'choice_text': choice.choice_text} 
+                    for choice in question.choices.filter(is_correct=True)
+                ] if question.question_type in ['mcq', 'true_false'] else None,
+                'status': self._get_question_status(question, user_answer)
+            }
+            question_data.append(data)
+        
+        return question_data
+    
+    def _get_question_status(self, question, user_answer):
+        """Determine the status of a question"""
+        if not user_answer:
+            return 'unanswered'
+        if user_answer.is_correct:
+            return 'correct'
+        return 'incorrect'

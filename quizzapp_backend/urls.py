@@ -65,6 +65,7 @@ from attempts.views import (
     CompleteQuizView, 
     AttemptHistoryView, 
     QuizResultView, 
+    QuizAttemptResultView,
     leaderboard
 )
 
@@ -187,6 +188,7 @@ urlpatterns = [
 
     # ==================== Instructor Endpoints ===================
     path('api/instructors/', InstructorListView.as_view(), name='instructor-list'),
+
     # ==================== Quiz Endpoints ====================
     # Quiz CRUD
     path('api/quizzes/', quiz_list, name='quiz-list'),
@@ -233,6 +235,7 @@ urlpatterns = [
     path('api/attempts/', AttemptHistoryView.as_view(), name='attempt-history'),
     path('api/attempts/<int:attempt_id>/result/', QuizResultView.as_view(), name='quiz-result'),
     path('api/quizzes/<int:quiz_id>/leaderboard/', leaderboard, name='leaderboard'),
+    path('api/quizzes/<int:quiz_id>/attempts/<int:attempt_id>/result/',  QuizAttemptResultView.as_view(),  name='quiz-attempt-result'),
 
     # ==================== Router URLs ====================
     path('api/', include(router.urls)),

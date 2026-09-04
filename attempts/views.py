@@ -6,7 +6,14 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from .models import QuizAttempt, UserAnswer
-from .serializers import QuizAttemptSerializer, SubmitAnswerSerializer, QuizResultSerializer, QuizCompleteSerializer
+from .serializers import (
+    QuizAttemptSerializer,
+    SubmitAnswerSerializer,
+    QuizResultSerializer,
+    QuizCompleteSerializer,
+    QuizAttemptResultSerializer,
+)
+
 from quizzes.models import Quiz, Question, Choice
 
 class StartQuizView(generics.CreateAPIView):
@@ -208,3 +215,57 @@ def leaderboard(request, quiz_id):
             'completed_at': attempt.end_time
         })
     return Response(data)
+
+class QuizAttemptResultView(generics.RetrieveAPIView):
+    """
+    API view to get detailed quiz attempt results for a specific quiz and attempt.
+    URL: /api/quizzes/<quiz_id>/attempts/<attempt_id>/result/
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = QuizAttemptResultSerializer
+    lookup_field = 'id'  # The field on the model to lookup
+    lookup_url_kwarg = 'attempt_id'  # The URL keyword argument name
+    
+    def get_queryset(self):
+        """
+        Get the specific quiz attempt for the logged-in user.
+        """
+        quiz_id = self.kwargs.get('quiz_id')
+        user = self.request.user
+        
+        # Staff can see all attempts, regular users only their own
+        if user.is_staff:
+            return QuizAttempt.objects.filter(quiz_id=quiz_id)
+        return QuizAttempt.objects.filter(quiz_id=quiz_id, user=user)
+    
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Retrieve a specific quiz attempt result.
+        """
+        try:
+            # Get the attempt by ID
+            attempt = self.get_object()
+            
+            # Verify the attempt belongs to the logged-in user (unless staff)
+            if attempt.user_id != request.user.id and not request.user.is_staff:
+                return Response(
+                    {'error': 'You do not have permission to view this result'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Check if quiz is completed
+            if attempt.status != 'completed':
+                return Response(
+                    {'error': 'Quiz attempt is not completed yet'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Serialize and return result
+            serializer = self.get_serializer(attempt)
+            return Response(serializer.data)
+            
+        except QuizAttempt.DoesNotExist:
+            return Response(
+                {'error': 'Quiz attempt not found for this quiz'},
+                status=status.HTTP_404_NOT_FOUND
+            )
