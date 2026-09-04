@@ -354,3 +354,18 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         
         attrs['user'] = user
         return attrs
+
+class InstructorListSerializer(serializers.ModelSerializer):
+    """Simplified serializer for listing instructors"""
+    profile = UserProfileSerializer(read_only=True)
+    
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'username',
+            'email',
+            'profile',
+            'date_joined',
+            'account_status',
+        ]

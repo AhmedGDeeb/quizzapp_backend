@@ -27,10 +27,20 @@ from django.conf.urls.static import static
 
 # Auth imports
 from auth_api.views import (
-    RegisterView, LoginView, LogoutView, ProfileView, ChangePasswordView,
-    VerifyEmailView, ResendVerificationView, RequestAccountDeletionView,
-    ReactivateAccountView, AccountStatusView, PasswordResetRequestView, 
-    PasswordResetConfirmView, PasswordResetCompleteView
+    RegisterView,
+    LoginView, 
+    LogoutView, 
+    ProfileView, 
+    ChangePasswordView,
+    VerifyEmailView, 
+    ResendVerificationView, 
+    RequestAccountDeletionView,
+    ReactivateAccountView, 
+    AccountStatusView, 
+    PasswordResetRequestView, 
+    PasswordResetConfirmView, 
+    PasswordResetCompleteView,
+    InstructorListView,
 )
 
 # Quiz imports
@@ -175,6 +185,8 @@ urlpatterns = [
     path('api/auth/reset-password/', PasswordResetRequestView.as_view(), name='password-reset-request'),
     path('api/auth/reset-password/<str:token>/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
 
+    # ==================== Instructor Endpoints ===================
+    path('api/instructors/', InstructorListView.as_view(), name='instructor-list'),
     # ==================== Quiz Endpoints ====================
     # Quiz CRUD
     path('api/quizzes/', quiz_list, name='quiz-list'),

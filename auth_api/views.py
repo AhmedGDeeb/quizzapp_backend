@@ -10,16 +10,27 @@ from .email_utils import (
 
 from django.contrib.auth import login, logout
 
-from rest_framework import views, generics, status
+from rest_framework import views, generics, status, filters
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from auth_api.models import User
 from auth_api.serializers import (
-    AccountReactivationSerializer, EmailVerificationSerializer, UserSerializer, UserProfileSerializer, RegisterSerializer,
-    LoginSerializer, ChangePasswordSerializer, AccountDeletionSerializer, ResendVerificationSerializer,
-    PasswordResetRequestSerializer, PasswordResetConfirmSerializer, PasswordResetCompleteSerializer
+    AccountReactivationSerializer,
+    EmailVerificationSerializer, 
+    UserSerializer, 
+    InstructorListSerializer,
+    UserProfileSerializer, 
+    RegisterSerializer,
+    LoginSerializer, 
+    ChangePasswordSerializer, 
+    AccountDeletionSerializer, 
+    ResendVerificationSerializer,
+    PasswordResetRequestSerializer, 
+    PasswordResetConfirmSerializer, 
+    PasswordResetCompleteSerializer,
+    
 )
 
 class RegisterView(generics.CreateAPIView):
@@ -637,4 +648,51 @@ class PasswordResetCompleteView(generics.GenericAPIView):
             'message': 'Password has been reset successfully.',
             'refresh': str(refresh),
             'access': str(refresh.access_token),
+        })
+
+
+class InstructorListView(generics.ListAPIView):
+    """
+    API view to list all instructors.
+    Supports filtering by account status and search by name/email.
+    """
+    serializer_class = InstructorListSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['username', 'email']
+    ordering_fields = ['date_joined', 'last_login', 'username']
+    ordering = ['-date_joined']
+    
+    def get_queryset(self):
+        """Get all active instructors"""
+        queryset = User.objects.filter(
+            role='instructor',
+            is_deleted=False
+        )
+        
+        # Optional: Filter by account status
+        status = self.request.query_params.get('status')
+        if status:
+            queryset = queryset.filter(account_status=status)
+        else:
+            # Default to active instructors only
+            queryset = queryset.filter(account_status='active')
+        
+        return queryset
+    
+    def list(self, request, *args, **kwargs):
+        """Override list to add count in response"""
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response({
+                'instructors': serializer.data,
+                'total_count': queryset.count()
+            })
+        
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'instructors': serializer.data,
+            'total_count': queryset.count()
         })
