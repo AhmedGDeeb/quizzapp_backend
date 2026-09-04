@@ -3,8 +3,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.shortcuts import get_object_or_404
-from django.db import transaction
-from django.db import models
+from django.db import models, transaction
 from .models import Quiz, Question, Choice
 from .serializers import (
     QuizSerializer, QuizDetailSerializer, QuizCreateUpdateSerializer,
@@ -14,7 +13,6 @@ from .serializers import (
     AssignQuestionSerializer,
     UnassignQuestionSerializer
 )
-
 from .permissions import IsInstructor, IsAdminUser
 
 class QuizViewSet(viewsets.ModelViewSet):
@@ -241,8 +239,9 @@ class QuestionViewSet(viewsets.ModelViewSet):
         if user.role == 'admin':
             return Question.objects.all()
         
-        if user.role == 'instructor':
-            return Question.objects.filter(quiz__creator=user)
+        return Question.objects.filter(
+                models.Q(quiz__creator=user) | models.Q(quiz__isnull=True, creator=user)
+            )
         
         # Students can only see questions from published quizzes
         return Question.objects.filter(quiz__is_published=True)
