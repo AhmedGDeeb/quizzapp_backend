@@ -212,6 +212,56 @@ class StandaloneQuestionCreateSerializer(serializers.ModelSerializer):
             Answer.objects.create(question=question, **correct_answer_data)
         
         return question
+
+    def update(self, instance, validated_data):
+        """
+        Update a standalone question with its choices and correct answer
+        """
+        # Pop the nested data but don't pass them to the model update
+        choices_data = validated_data.pop('choices', None)
+        correct_answer_data = validated_data.pop('correct_answer', None)
+        
+        # Update the question instance fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        # Handle choices if provided
+        if choices_data is not None:
+            # Delete existing choices
+            instance.choices.all().delete()
+            
+            # Create new choices
+            for choice_data in choices_data:
+                Choice.objects.create(question=instance, **choice_data)
+        
+        # Handle correct answer if provided
+        if correct_answer_data is not None:
+            # Delete existing correct answer if it exists
+            try:
+                instance.correct_answer.delete()
+            except Answer.DoesNotExist:
+                pass  # No existing correct answer
+            
+            # Create new correct answer
+            Answer.objects.create(question=instance, **correct_answer_data)
+        
+        return instance
+    
+    def to_internal_value(self, data):
+        """
+        Override to handle nested data properly
+        """
+        # Extract nested data before validation
+        self._choices_data = data.get('choices', [])
+        self._correct_answer_data = data.get('correct_answer', None)
+        
+        # Create a copy of data without nested fields for the parent validation
+        data_copy = data.copy()
+        data_copy.pop('choices', None)
+        data_copy.pop('correct_answer', None)
+        
+        return super().to_internal_value(data_copy)
     
 class AssignQuestionSerializer(serializers.Serializer):
     """Serializer for assigning a single question to a quiz"""
