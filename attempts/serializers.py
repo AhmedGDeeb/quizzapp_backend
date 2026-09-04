@@ -335,3 +335,80 @@ class QuizAttemptResultSerializer(serializers.ModelSerializer):
         if user_answer.is_correct:
             return 'correct'
         return 'incorrect'
+
+class QuizAttemptSummarySerializer(serializers.ModelSerializer):
+    """
+    Serializer for quiz attempt summary with student details
+    """
+    # Student details
+    student_id = serializers.IntegerField(source='user.id')
+    student_name = serializers.SerializerMethodField()
+    student_email = serializers.EmailField(source='user.email')
+    
+    # Quiz details
+    quiz_title = serializers.CharField(source='quiz.title')
+    total_questions = serializers.IntegerField(source='quiz.question_count')
+    total_points = serializers.IntegerField(source='quiz.total_points')
+    
+    # Attempt statistics
+    correct_answers = serializers.SerializerMethodField()
+    incorrect_answers = serializers.SerializerMethodField()
+    unanswered_questions = serializers.SerializerMethodField()
+    score_percentage = serializers.SerializerMethodField()
+    time_taken_minutes = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = QuizAttempt
+        fields = [
+            'id',
+            'student_id',
+            'student_name',
+            'student_email',
+            'quiz_title',
+            'score',
+            'score_percentage',
+            'status',
+            'start_time',
+            'end_time',
+            'time_taken_minutes',
+            'total_questions',
+            'total_points',
+            'correct_answers',
+            'incorrect_answers',
+            'unanswered_questions',
+        ]
+    
+    def get_student_name(self, obj):
+        """Get student's full name"""
+        user = obj.user
+        if user.first_name and user.last_name:
+            return f"{user.first_name} {user.last_name}"
+        return user.username
+    
+    def get_correct_answers(self, obj):
+        """Get number of correct answers"""
+        return obj.answers.filter(is_correct=True).count()
+    
+    def get_incorrect_answers(self, obj):
+        """Get number of incorrect answers"""
+        return obj.answers.filter(is_correct=False).count()
+    
+    def get_unanswered_questions(self, obj):
+        """Get number of unanswered questions"""
+        total = obj.quiz.question_count
+        answered = obj.answers.count()
+        return total - answered
+    
+    def get_score_percentage(self, obj):
+        """Get score as percentage"""
+        total_points = obj.quiz.total_points
+        if total_points == 0:
+            return 0.0
+        return round((obj.score / total_points) * 100, 2)
+    
+    def get_time_taken_minutes(self, obj):
+        """Get time taken in minutes"""
+        if obj.end_time and obj.start_time:
+            duration = obj.end_time - obj.start_time
+            return round(duration.total_seconds() / 60, 2)
+        return None

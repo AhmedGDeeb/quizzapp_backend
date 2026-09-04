@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.db.models import Avg, Max, Min, Count
 
 from .models import QuizAttempt, UserAnswer
 from .serializers import (
@@ -12,6 +13,7 @@ from .serializers import (
     QuizResultSerializer,
     QuizCompleteSerializer,
     QuizAttemptResultSerializer,
+    QuizAttemptSummarySerializer,
 )
 
 from quizzes.models import Quiz, Question, Choice
@@ -269,3 +271,91 @@ class QuizAttemptResultView(generics.RetrieveAPIView):
                 {'error': 'Quiz attempt not found for this quiz'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+class InstructorQuizResultsView(generics.GenericAPIView):
+    """
+    API view for instructors to see all student results for their quiz.
+    URL: /api/instructor/quizzes/<quiz_id>/results/
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = QuizAttemptSummarySerializer
+    
+    def get_queryset(self):
+        """
+        Get all completed attempts for the instructor's quiz.
+        """
+        quiz_id = self.kwargs.get('quiz_id')
+        quiz = get_object_or_404(Quiz, id=quiz_id)
+        
+        # Verify the instructor is the creator of the quiz
+        if quiz.creator != self.request.user:
+            return QuizAttempt.objects.none()
+        
+        queryset = QuizAttempt.objects.filter(
+            quiz_id=quiz_id,
+            status='completed'
+        ).select_related('user', 'quiz')
+        
+        # Optional student_id filter
+        student_id = self.request.query_params.get('student_id')
+        if student_id:
+            queryset = queryset.filter(user_id=student_id)
+        
+        return queryset.order_by('-score', 'end_time')
+    
+    def get(self, request, quiz_id):
+        """
+        Get all student attempts for a quiz created by the instructor.
+        """
+        quiz = get_object_or_404(Quiz, id=quiz_id)
+        
+        # Verify the instructor is the creator of the quiz
+        if quiz.creator != request.user:
+            return Response(
+                {'error': 'You can only view results for quizzes you created'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        queryset = self.get_queryset()
+        
+        # Calculate statistics
+        total_students = queryset.count()
+        stats = queryset.aggregate(
+            average=Avg('score'),
+            highest=Max('score'),
+            lowest=Min('score')
+        )
+        
+        # Calculate pass/fail (60% passing threshold)
+        passing_score_percentage = 60
+        passing_score = (passing_score_percentage / 100) * quiz.total_points
+        passed = queryset.filter(score__gte=passing_score).count()
+        failed = total_students - passed
+        
+        # Serialize attempts
+        serializer = self.get_serializer(queryset, many=True)
+        
+        # Prepare response
+        response_data = {
+            'quiz': {
+                'id': quiz.id,
+                'title': quiz.title,
+                'description': quiz.description,
+                'category': quiz.category,
+                'total_questions': quiz.question_count,
+                'total_points': quiz.total_points,
+                'created_at': quiz.created_at,
+            },
+            'statistics': {
+                'total_students': total_students,
+                'average_score': round(stats['average'] or 0, 2),
+                'highest_score': round(stats['highest'] or 0, 2),
+                'lowest_score': round(stats['lowest'] or 0, 2),
+                'passed': passed,
+                'failed': failed,
+                'passing_percentage': round((passed / total_students * 100) if total_students > 0 else 0, 2),
+            },
+            'attempts': serializer.data
+        }
+        
+        return Response(response_data)

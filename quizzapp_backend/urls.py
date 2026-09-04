@@ -55,7 +55,8 @@ from quizzes.views import (
     AssignQuestionToQuizFromDetailView,
     UnassignQuestionFromQuizDetailView,
     MyQuestionsView, 
-    AvailableQuestionsView
+    AvailableQuestionsView,
+    
 )
 
 # Attempts imports
@@ -66,6 +67,7 @@ from attempts.views import (
     AttemptHistoryView, 
     QuizResultView, 
     QuizAttemptResultView,
+    InstructorQuizResultsView,
     leaderboard
 )
 
@@ -188,6 +190,7 @@ urlpatterns = [
 
     # ==================== Instructor Endpoints ===================
     path('api/instructors/', InstructorListView.as_view(), name='instructor-list'),
+    path('api/instructor/quizzes/<int:quiz_id>/results/',  InstructorQuizResultsView.as_view(),  name='instructor-quiz-results'),
 
     # ==================== Quiz Endpoints ====================
     # Quiz CRUD
