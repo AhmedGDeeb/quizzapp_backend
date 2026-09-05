@@ -242,9 +242,6 @@ class QuestionViewSet(viewsets.ModelViewSet):
         return Question.objects.filter(
                 models.Q(quiz__creator=user) | models.Q(quiz__isnull=True, creator=user)
             )
-        
-        # Students can only see questions from published quizzes
-        return Question.objects.filter(quiz__is_published=True)
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -264,7 +261,9 @@ class QuestionViewSet(viewsets.ModelViewSet):
         quiz_id = self.request.data.get('quiz')
         if quiz_id:
             quiz = get_object_or_404(Quiz, id=quiz_id)
-            serializer.save(quiz=quiz)
+            serializer.save(quiz=quiz, creator=self.request.user)
+        else:
+            serializer.save(creator=self.request.user)
 
 
 class ChoiceViewSet(viewsets.ModelViewSet):

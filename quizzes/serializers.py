@@ -29,7 +29,7 @@ class QuestionSerializer(serializers.ModelSerializer):
         model = Question
         fields = ('id', 'question_text', 'question_type', 'points', 'quiz' , 
                   'order_index', 'choices', 'correct_answer', 'has_choices')
-        read_only_fields = ('id', 'has_choices')
+        read_only_fields = ('id',)
 
 
 class QuestionCreateSerializer(serializers.ModelSerializer):

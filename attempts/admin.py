@@ -68,11 +68,11 @@ class QuizAttemptAdmin(admin.ModelAdmin):
         if obj.score:
             color = '#28a745' if obj.score >= 70 else '#ffc107' if obj.score >= 50 else '#dc3545'
             return format_html(
-                '<span style="font-weight: bold; color: {};">{:.1f}%</span>',
+                '<span style="font-weight: bold; color: {};">{}%</span>',
                 color,
-                obj.score
+                round(obj.score, 1)
             )
-        return '-'
+        return format_html('<span>-</span>')
     score_display.short_description = 'Score'
     
     def status_display(self, obj):
@@ -83,10 +83,11 @@ class QuizAttemptAdmin(admin.ModelAdmin):
             'abandoned': '#dc3545',
         }
         color = colors.get(obj.status, '#6c757d')
+        status_text = obj.status.replace('_', ' ').title()
         return format_html(
             '<span style="background: {}; color: white; padding: 2px 8px; border-radius: 4px;">{}</span>',
             color,
-            obj.status.replace('_', ' ').title()
+            status_text
         )
     status_display.short_description = 'Status'
     
