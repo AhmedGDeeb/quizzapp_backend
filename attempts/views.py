@@ -1,4 +1,4 @@
-from rest_framework import generics, status
+from rest_framework import generics, status, filters
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
@@ -14,6 +14,8 @@ from .serializers import (
     QuizCompleteSerializer,
     QuizAttemptResultSerializer,
     QuizAttemptSummarySerializer,
+    StudentAttemptListSerializer,
+    StudentAttemptDetailSerializer,
 )
 
 from quizzes.models import Quiz, Question, Choice
@@ -387,3 +389,181 @@ class InstructorQuizResultsView(generics.GenericAPIView):
         }
         
         return Response(response_data)
+
+class StudentAttemptsListView(generics.ListAPIView):
+    """
+    API view to get all quiz attempts for the logged-in student.
+    URL: /api/my-attempts/
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = StudentAttemptListSerializer
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['quiz__title', 'quiz__category']
+    ordering_fields = ['start_time', 'end_time', 'score', 'status']
+    ordering = ['-start_time']
+    
+    def get_queryset(self):
+        """Get all attempts for the logged-in user"""
+        user = self.request.user
+        
+        queryset = QuizAttempt.objects.filter(
+            user=user
+        ).select_related('quiz', 'quiz__creator', 'user')
+        
+        # Optional filters
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        quiz_id = self.request.query_params.get('quiz_id')
+        if quiz_id:
+            queryset = queryset.filter(quiz_id=quiz_id)
+        
+        category = self.request.query_params.get('category')
+        if category:
+            queryset = queryset.filter(quiz__category__icontains=category)
+        
+        from_date = self.request.query_params.get('from_date')
+        if from_date:
+            queryset = queryset.filter(start_time__date__gte=from_date)
+        
+        to_date = self.request.query_params.get('to_date')
+        if to_date:
+            queryset = queryset.filter(start_time__date__lte=to_date)
+        
+        return queryset
+    
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        page = self.paginate_queryset(queryset)
+        
+        # Statistics
+        total_count = queryset.count()
+        completed_count = queryset.filter(status='completed').count()
+        in_progress_count = queryset.filter(status='in_progress').count()
+        abandoned_count = queryset.filter(status='abandoned').count()
+        
+        stats = queryset.filter(status='completed').aggregate(
+            average=Avg('score'),
+            highest=Max('score'),
+            lowest=Min('score')
+        )
+        
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response({
+                'attempts': serializer.data,
+                'statistics': {
+                    'total': total_count,
+                    'completed': completed_count,
+                    'in_progress': in_progress_count,
+                    'abandoned': abandoned_count,
+                    'average_score': round(stats['average'] or 0, 2),
+                    'highest_score': round(stats['highest'] or 0, 2),
+                    'lowest_score': round(stats['lowest'] or 0, 2),
+                }
+            })
+        
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'attempts': serializer.data,
+            'statistics': {
+                'total': total_count,
+                'completed': completed_count,
+                'in_progress': in_progress_count,
+                'abandoned': abandoned_count,
+                'average_score': round(stats['average'] or 0, 2),
+                'highest_score': round(stats['highest'] or 0, 2),
+                'lowest_score': round(stats['lowest'] or 0, 2),
+            }
+        })
+
+
+class StudentAttemptDetailView(generics.RetrieveAPIView):
+    """
+    API view to get a specific attempt detail.
+    URL: /api/my-attempts/<attempt_id>/
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = StudentAttemptDetailSerializer
+    lookup_field = 'id'
+    
+    def get_queryset(self):
+        """Only return attempts belonging to the logged-in user"""
+        return QuizAttempt.objects.filter(user=self.request.user).select_related('quiz', 'quiz__creator')
+    
+    def retrieve(self, request, *args, **kwargs):
+        attempt = self.get_object()
+        
+        # Verify ownership
+        if attempt.user != request.user:
+            return Response(
+                {'error': 'You do not have permission to view this attempt'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = self.get_serializer(attempt)
+        return Response(serializer.data)
+
+class StudentQuizAttemptsView(generics.ListAPIView):
+    """
+    API view to get all attempts for a specific quiz by the logged-in student.
+    URL: /api/my-attempts/quizzes/<quiz_id>/
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = StudentAttemptListSerializer
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ['start_time', 'end_time', 'score', 'status']
+    ordering = ['-start_time']
+    
+    def get_queryset(self):
+        """Get all attempts for the specific quiz by the logged-in user"""
+        user = self.request.user
+        quiz_id = self.kwargs.get('quiz_id')
+        
+        # Verify quiz exists
+        get_object_or_404(Quiz, id=quiz_id)
+        
+        return QuizAttempt.objects.filter(
+            user=user,
+            quiz_id=quiz_id
+        ).select_related('quiz', 'quiz__creator', 'user')
+    
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        
+        # Check if any attempts exist
+        if not queryset.exists():
+            return Response({
+                'message': 'No attempts found for this quiz',
+                'quiz_id': self.kwargs.get('quiz_id'),
+                'total_attempts': 0,
+                'best_score': 0,
+                'attempts': []
+            })
+        
+        # Get statistics
+        completed = queryset.filter(status='completed')
+        best_score = completed.aggregate(Max('score'))['score__max'] or 0
+        attempts_count = queryset.count()
+        
+        # Paginate if needed
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response({
+                'quiz_id': self.kwargs.get('quiz_id'),
+                'total_attempts': attempts_count,
+                'best_score': best_score,
+                'attempts': serializer.data
+            })
+        
+        # Serialize all attempts
+        serializer = self.get_serializer(queryset, many=True)
+        
+        return Response({
+            'quiz_id': self.kwargs.get('quiz_id'),
+            'total_attempts': attempts_count,
+            'best_score': best_score,
+            'attempts': serializer.data
+        })

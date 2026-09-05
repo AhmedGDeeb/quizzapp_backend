@@ -406,3 +406,292 @@ class QuizAttemptSummarySerializer(serializers.ModelSerializer):
             duration = obj.end_time - obj.start_time
             return round(duration.total_seconds() / 60, 2)
         return None
+
+class StudentAttemptListSerializer(serializers.ModelSerializer):
+    """
+    Serializer for listing student's quiz attempts
+    """
+    quiz_title = serializers.CharField(source='quiz.title', read_only=True)
+    quiz_description = serializers.CharField(source='quiz.description', read_only=True)
+    quiz_category = serializers.CharField(source='quiz.category', read_only=True)
+    instructor_name = serializers.SerializerMethodField()
+    total_questions = serializers.IntegerField(source='quiz.question_count', read_only=True)
+    total_points = serializers.IntegerField(source='quiz.total_points', read_only=True)
+    correct_answers = serializers.SerializerMethodField()
+    incorrect_answers = serializers.SerializerMethodField()
+    unanswered_questions = serializers.SerializerMethodField()
+    score_percentage = serializers.SerializerMethodField()
+    time_taken = serializers.SerializerMethodField()
+    attempt_number = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = QuizAttempt
+        fields = (
+            'id',
+            'quiz',
+            'quiz_title',
+            'quiz_description',
+            'quiz_category',
+            'instructor_name',
+            'status',
+            'score',
+            'score_percentage',
+            'total_questions',
+            'total_points',
+            'correct_answers',
+            'incorrect_answers',
+            'unanswered_questions',
+            'start_time',
+            'end_time',
+            'time_taken',
+            'attempt_number',
+        )
+    
+    def get_instructor_name(self, obj):
+        """Get the name of the quiz creator/instructor"""
+        creator = obj.quiz.creator
+        if creator.first_name and creator.last_name:
+            return f"{creator.first_name} {creator.last_name}"
+        return creator.username
+    
+    def get_correct_answers(self, obj):
+        """Get number of correct answers"""
+        return obj.answers.filter(is_correct=True).count()
+    
+    def get_incorrect_answers(self, obj):
+        """Get number of incorrect answers"""
+        return obj.answers.filter(is_correct=False).count()
+    
+    def get_unanswered_questions(self, obj):
+        """Get number of unanswered questions"""
+        total = obj.quiz.question_count
+        answered = obj.answers.count()
+        return total - answered
+    
+    def get_score_percentage(self, obj):
+        """Get score as percentage"""
+        total_points = obj.quiz.total_points
+        if total_points == 0:
+            return 0.0
+        return round((obj.score / total_points) * 100, 2)
+    
+    def get_time_taken(self, obj):
+        """Calculate time taken to complete the quiz"""
+        if obj.end_time and obj.start_time:
+            duration = obj.end_time - obj.start_time
+            return {
+                'minutes': int(duration.total_seconds() // 60),
+                'seconds': int(duration.total_seconds() % 60),
+                'total_seconds': duration.total_seconds()
+            }
+        return None
+    
+    def get_attempt_number(self, obj):
+        """Get the attempt number for this quiz"""
+        # Count how many attempts the user has made for this quiz
+        attempts = QuizAttempt.objects.filter(
+            user=obj.user,
+            quiz=obj.quiz
+        ).order_by('start_time')
+        
+        for index, attempt in enumerate(attempts, 1):
+            if attempt.id == obj.id:
+                return index
+        return None
+
+
+class UserAnswerDetailSerializer(serializers.ModelSerializer):
+    """
+    Serializer for user answers with question details
+    """
+    question_text = serializers.CharField(source='question.question_text', read_only=True)
+    question_type = serializers.CharField(source='question.question_type', read_only=True)
+    question_type_display = serializers.CharField(source='question.get_question_type_display', read_only=True)
+    points = serializers.IntegerField(source='question.points', read_only=True)
+    order_index = serializers.IntegerField(source='question.order_index', read_only=True)
+    selected_choice_text = serializers.SerializerMethodField()
+    selected_choice_ids = serializers.JSONField(read_only=True)
+    correct_choices = serializers.SerializerMethodField()
+    correct_answer_text = serializers.SerializerMethodField()
+    all_choices = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = UserAnswer
+        fields = (
+            'id',
+            'question',
+            'question_text',
+            'question_type',
+            'question_type_display',
+            'points',
+            'order_index',
+            'selected_choice',
+            'selected_choice_ids',
+            'selected_choice_text',
+            'text_answer',
+            'is_correct',
+            'answered_at',
+            'all_choices',
+            'correct_choices',
+            'correct_answer_text',
+        )
+    
+    def get_selected_choice_text(self, obj):
+        """Get the text of the selected choice(s)"""
+        if obj.selected_choice:
+            return obj.selected_choice.choice_text
+        elif obj.selected_choice_ids:
+            choices = Choice.objects.filter(id__in=obj.selected_choice_ids)
+            return [choice.choice_text for choice in choices]
+        return None
+    
+    def get_all_choices(self, obj):
+        """Get all choices for the question"""
+        choices = obj.question.choices.all()
+        return ChoiceSerializer(choices, many=True).data
+    
+    def get_correct_choices(self, obj):
+        """Get the correct choice(s) for MCQ/TrueFalse questions"""
+        question = obj.question
+        if question.question_type in ['mcq', 'true_false']:
+            correct_choices = question.choices.filter(is_correct=True)
+            return ChoiceSerializer(correct_choices, many=True).data
+        return None
+    
+    def get_correct_answer_text(self, obj):
+        """Get the correct answer text for short answer questions"""
+        question = obj.question
+        if question.question_type == 'short_answer' and hasattr(question, 'correct_answer'):
+            return question.correct_answer.correct_answer_text
+        return None
+
+
+class StudentAttemptDetailSerializer(serializers.ModelSerializer):
+    """
+    Detailed serializer for a specific student attempt with all answers
+    """
+    quiz_title = serializers.CharField(source='quiz.title', read_only=True)
+    quiz_description = serializers.CharField(source='quiz.description', read_only=True)
+    quiz_category = serializers.CharField(source='quiz.category', read_only=True)
+    instructor_name = serializers.SerializerMethodField()
+    total_questions = serializers.IntegerField(source='quiz.question_count', read_only=True)
+    total_points = serializers.IntegerField(source='quiz.total_points', read_only=True)
+    correct_answers = serializers.SerializerMethodField()
+    incorrect_answers = serializers.SerializerMethodField()
+    unanswered_questions = serializers.SerializerMethodField()
+    score_percentage = serializers.SerializerMethodField()
+    time_taken = serializers.SerializerMethodField()
+    attempt_number = serializers.SerializerMethodField()
+    answers = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = QuizAttempt
+        fields = (
+            'id',
+            'quiz',
+            'quiz_title',
+            'quiz_description',
+            'quiz_category',
+            'instructor_name',
+            'status',
+            'score',
+            'score_percentage',
+            'total_questions',
+            'total_points',
+            'correct_answers',
+            'incorrect_answers',
+            'unanswered_questions',
+            'start_time',
+            'end_time',
+            'time_taken',
+            'attempt_number',
+            'answers',
+        )
+    
+    def get_instructor_name(self, obj):
+        creator = obj.quiz.creator
+        if creator.first_name and creator.last_name:
+            return f"{creator.first_name} {creator.last_name}"
+        return creator.username
+    
+    def get_correct_answers(self, obj):
+        return obj.answers.filter(is_correct=True).count()
+    
+    def get_incorrect_answers(self, obj):
+        return obj.answers.filter(is_correct=False).count()
+    
+    def get_unanswered_questions(self, obj):
+        total = obj.quiz.question_count
+        answered = obj.answers.count()
+        return total - answered
+    
+    def get_score_percentage(self, obj):
+        total_points = obj.quiz.total_points
+        if total_points == 0:
+            return 0.0
+        return round((obj.score / total_points) * 100, 2)
+    
+    def get_time_taken(self, obj):
+        if obj.end_time and obj.start_time:
+            duration = obj.end_time - obj.start_time
+            return {
+                'minutes': int(duration.total_seconds() // 60),
+                'seconds': int(duration.total_seconds() % 60),
+                'total_seconds': duration.total_seconds()
+            }
+        return None
+    
+    def get_attempt_number(self, obj):
+        """Get the attempt number for this quiz"""
+        attempts = QuizAttempt.objects.filter(
+            user=obj.user,
+            quiz=obj.quiz
+        ).order_by('start_time')
+        
+        for index, attempt in enumerate(attempts, 1):
+            if attempt.id == obj.id:
+                return index
+        return None
+    
+    def get_answers(self, obj):
+        """Get all answers with question details"""
+        # Get all answers for this attempt
+        user_answers = obj.answers.all().select_related('question', 'selected_choice')
+        
+        # Get all questions for the quiz (including unanswered)
+        all_questions = obj.quiz.get_questions_ordered()
+        answered_question_ids = [answer.question_id for answer in user_answers]
+        
+        # Build response with all questions
+        answers_data = []
+        
+        # Add answered questions
+        for answer in user_answers:
+            answers_data.append(UserAnswerDetailSerializer(answer).data)
+        
+        # Add unanswered questions
+        for question in all_questions:
+            if question.id not in answered_question_ids:
+                answers_data.append({
+                    'question': question.id,
+                    'question_text': question.question_text,
+                    'question_type': question.question_type,
+                    'question_type_display': question.get_question_type_display(),
+                    'points': question.points,
+                    'order_index': question.order_index,
+                    'selected_choice': None,
+                    'selected_choice_ids': None,
+                    'selected_choice_text': None,
+                    'text_answer': None,
+                    'is_correct': None,
+                    'answered_at': None,
+                    'all_choices': ChoiceSerializer(question.choices.all(), many=True).data if question.has_choices else [],
+                    'correct_choices': ChoiceSerializer(question.choices.filter(is_correct=True), many=True).data if question.question_type in ['mcq', 'true_false'] else None,
+                    'correct_answer_text': question.correct_answer.correct_answer_text if question.question_type == 'short_answer' and hasattr(question, 'correct_answer') else None,
+                    'status': 'unanswered'
+                })
+        
+        # Sort by order_index
+        answers_data.sort(key=lambda x: x.get('order_index', 0))
+        
+        return answers_data
