@@ -112,7 +112,7 @@ class SubmitAnswerSerializer(serializers.Serializer):
             raise serializers.ValidationError({'question_id': 'Question does not exist.'})
         
         # Validate based on question type
-        if question.question_type in ['mcq', 'true_false']:
+        if question.question_type == 'mcq':
             # For MCQ/True-False, selected_choice_ids is required
             if not selected_choice_ids:
                 raise serializers.ValidationError({
@@ -126,15 +126,9 @@ class SubmitAnswerSerializer(serializers.Serializer):
                     'selected_choice_ids': 'One or more choices do not belong to this question.'
                 })
             
-            # For True/False, only allow 1 choice
-            if question.question_type == 'true_false' and len(selected_choice_ids) != 1:
-                raise serializers.ValidationError({
-                    'selected_choice_ids': 'True/False questions only allow one selection.'
-                })
-            
             attrs['choices'] = choices
             
-        elif question.question_type == 'short_answer':
+        elif question.question_type in ['short_answer', question.question_type == 'true_false']:
             # For Short Answer, text_answer is required
             if not text_answer:
                 raise serializers.ValidationError({

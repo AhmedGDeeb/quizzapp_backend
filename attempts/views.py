@@ -35,7 +35,6 @@ class StartQuizView(generics.CreateAPIView):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 # views.py - Enhanced version with all correct choices
-
 class SubmitAnswerView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = SubmitAnswerSerializer
@@ -64,17 +63,18 @@ class SubmitAnswerView(generics.GenericAPIView):
             question=question
         ).first()
         
-        # Get the selected choice IDs from serializer - KEEP THIS
-        selected_choice_ids = serializer.validated_data.get('selected_choice_ids', [])
-        
         # Initialize variables
         is_correct = False
         text_answer = None
         correct_answer_text = None
         user_answer_text = None
+        selected_choice_ids = []
         
         # Handle based on question type
-        if question.question_type in ['mcq', 'true_false']:
+        if question.question_type == 'mcq':
+            # Get selected choice IDs for MCQ
+            selected_choice_ids = serializer.validated_data.get('selected_choice_ids', [])
+            
             # Get all correct choices for this question
             correct_choices = question.choices.filter(is_correct=True)
             correct_choice_ids = set(correct_choices.values_list('id', flat=True))
@@ -93,7 +93,39 @@ class SubmitAnswerView(generics.GenericAPIView):
             else:
                 correct_answer_text = None
                 
-        else:
+        elif question.question_type == 'true_false':
+            # True/False uses text_answer field
+            text_answer = serializer.validated_data.get('text_answer', '').strip()
+            user_answer_text = text_answer
+            
+            # Normalize the answer - convert to proper case
+            if text_answer.lower() in ['true', 't', 'yes', 'y', '1']:
+                normalized_answer = 'True'
+            elif text_answer.lower() in ['false', 'f', 'no', 'n', '0']:
+                normalized_answer = 'False'
+            else:
+                normalized_answer = text_answer.title()  # Capitalize first letter
+            
+            # Get the correct answer - check if there's a correct answer model
+            if hasattr(question, 'correct_answer') and question.correct_answer:
+                # If using the Answer model for correct answers
+                correct_answer_text = question.correct_answer.correct_answer_text.strip()
+                # Case-insensitive comparison
+                is_correct = normalized_answer.lower() == correct_answer_text.lower()
+            else:
+                # If using choices with is_correct flag
+                correct_choice = question.choices.filter(is_correct=True).first()
+                if correct_choice:
+                    correct_answer_text = correct_choice.choice_text.strip()
+                    # Case-insensitive comparison
+                    is_correct = normalized_answer.lower() == correct_answer_text.lower()
+                else:
+                    # Fallback: check if answer is 'True' or 'False' and set accordingly
+                    # You might want to define which one is correct based on question
+                    correct_answer_text = 'True'  # Default
+                    is_correct = normalized_answer.lower() == 'true'
+            
+        else:  # short_answer
             # Handle short answer
             text_answer = serializer.validated_data.get('text_answer', '').strip()
             user_answer_text = text_answer
@@ -104,12 +136,13 @@ class SubmitAnswerView(generics.GenericAPIView):
                 # Case-insensitive comparison
                 is_correct = text_answer.lower() == correct_answer_text.lower()
             else:
+                correct_answer_text = None
                 is_correct = False
         
-        # Update or create answer - REMOVED THE DUPLICATE LINE
+        # Update or create answer
         if existing_answer:
             existing_answer.selected_choice = None
-            existing_answer.selected_choice_ids = selected_choice_ids
+            existing_answer.selected_choice_ids = selected_choice_ids if selected_choice_ids else []
             existing_answer.text_answer = user_answer_text
             existing_answer.is_correct = is_correct
             existing_answer.save()
@@ -118,7 +151,7 @@ class SubmitAnswerView(generics.GenericAPIView):
                 attempt=attempt,
                 question=question,
                 selected_choice=None,
-                selected_choice_ids=selected_choice_ids,
+                selected_choice_ids=selected_choice_ids if selected_choice_ids else [],
                 text_answer=user_answer_text,
                 is_correct=is_correct
             )
@@ -148,7 +181,7 @@ class SubmitAnswerView(generics.GenericAPIView):
         }
         
         # Add question-type specific fields
-        if question.question_type in ['mcq', 'true_false']:
+        if question.question_type == 'mcq':
             response_data['selected_choice_ids'] = selected_choice_ids
         else:
             response_data['text_answer'] = text_answer
