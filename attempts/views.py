@@ -1,10 +1,12 @@
 from rest_framework import generics, status, filters
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+from django.db import transaction
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.db.models import Avg, Max, Min, Count
+from django.db.models import Q, Avg, Max, Min, Count
 
 from .models import QuizAttempt, UserAnswer
 from .serializers import (
@@ -16,6 +18,9 @@ from .serializers import (
     QuizAttemptSummarySerializer,
     StudentAttemptListSerializer,
     StudentAttemptDetailSerializer,
+    QuizAttemptForEvaluationSerializer,
+    BulkQuizAttemptEvaluationUpdateSerializer,
+    QuizEvaluationStatusSerializer,
 )
 
 from quizzes.models import Quiz, Question, Choice
@@ -566,4 +571,360 @@ class StudentQuizAttemptsView(generics.ListAPIView):
             'total_attempts': attempts_count,
             'best_score': best_score,
             'attempts': serializer.data
+        })
+
+class InstructorQuizAttemptsForEvaluationView(generics.ListAPIView):
+    """
+    API view for instructors to get all attempts for a quiz that need evaluation.
+    URL: /api/instructor/quizzes/<quiz_id>/attempts/evaluate/
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = QuizAttemptForEvaluationSerializer
+    
+    def get_queryset(self):
+        quiz_id = self.kwargs.get('quiz_id')
+        
+        # Verify the instructor owns the quiz
+        quiz = get_object_or_404(Quiz, id=quiz_id)
+        if quiz.creator != self.request.user:
+            return QuizAttempt.objects.none()
+        
+        # Get all completed attempts
+        queryset = QuizAttempt.objects.filter(
+            quiz_id=quiz_id,
+            status='completed'
+        ).select_related('user', 'quiz', 'quiz__creator')
+        
+        # Optional filter: only attempts with manual grading needed
+        manual_grading = self.request.query_params.get('manual_grading')
+        if manual_grading and manual_grading.lower() == 'true':
+            # Filter attempts that have short answer questions (need manual grading)
+            queryset = queryset.filter(
+                quiz__questions__question_type='short_answer'
+            ).distinct()
+        
+        return queryset.order_by('-start_time')
+    
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        
+        # Check if queryset is empty due to permission
+        if not queryset.exists():
+            quiz = get_object_or_404(Quiz, id=self.kwargs.get('quiz_id'))
+            if quiz.creator != request.user:
+                return Response(
+                    {'error': 'You can only evaluate attempts for quizzes you created'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response({
+                'quiz_id': self.kwargs.get('quiz_id'),
+                'total_attempts': queryset.count(),
+                'attempts': serializer.data
+            })
+        
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'quiz_id': self.kwargs.get('quiz_id'),
+            'total_attempts': queryset.count(),
+            'attempts': serializer.data
+        })
+
+
+class InstructorQuizAttemptEvaluateView(APIView):
+    """
+    API view for instructors to evaluate a specific attempt with feedback.
+    URL: /api/instructor/attempts/<attempt_id>/evaluate/
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, attempt_id):
+        """Get attempt details for evaluation"""
+        attempt = get_object_or_404(QuizAttempt, id=attempt_id)
+        
+        # Verify instructor owns the quiz
+        if attempt.quiz.creator != request.user:
+            return Response(
+                {'error': 'You can only evaluate attempts for quizzes you created'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if attempt.status != 'completed':
+            return Response(
+                {'error': 'This attempt is not completed yet'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer = QuizAttemptForEvaluationSerializer(attempt)
+        return Response(serializer.data)
+    
+    @transaction.atomic
+    def put(self, request, attempt_id):
+        """Update scores and feedback for individual answers (draft)"""
+        attempt = get_object_or_404(QuizAttempt, id=attempt_id)
+        
+        # Verify instructor owns the quiz
+        if attempt.quiz.creator != request.user:
+            return Response(
+                {'error': 'You can only evaluate attempts for quizzes you created'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if attempt.status != 'completed':
+            return Response(
+                {'error': 'This attempt is not completed yet'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate and process scores
+        serializer = BulkQuizAttemptEvaluationUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        scores_data = serializer.validated_data['scores']
+        
+        # Update each answer
+        updated_answers = []
+        total_score = 0
+        
+        for score_data in scores_data:
+            answer_id = score_data['answer_id']
+            score_awarded = score_data['score_awarded']
+            feedback = score_data.get('feedback', '')
+            
+            try:
+                answer = UserAnswer.objects.get(id=answer_id, attempt=attempt)
+                
+                # Validate score doesn't exceed max points
+                max_points = answer.question.points
+                if score_awarded > max_points:
+                    return Response(
+                        {'error': f'Score {score_awarded} exceeds maximum points {max_points} for question {answer.question.id}'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                # Update the answer
+                answer.score_awarded = score_awarded
+                answer.is_manually_graded = True
+                answer.graded_by = request.user
+                answer.graded_at = timezone.now()
+                answer.feedback = feedback
+                answer.is_correct = score_awarded > 0
+                answer.save()
+                
+                total_score += score_awarded
+                updated_answers.append({
+                    'answer_id': answer_id,
+                    'question_id': answer.question.id,
+                    'score_awarded': score_awarded,
+                    'max_points': max_points,
+                    'feedback': feedback,
+                    'is_manually_graded': True,
+                    'graded_at': answer.graded_at,
+                })
+                
+            except UserAnswer.DoesNotExist:
+                return Response(
+                    {'error': f'Answer with id {answer_id} not found in this attempt'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Update attempt score (draft - not finalized)
+        attempt.score = total_score
+        attempt.manual_score = total_score
+        attempt.save()
+        
+        return Response({
+            'message': 'Scores and feedback updated successfully (draft saved)',
+            'attempt_id': attempt.id,
+            'total_score': total_score,
+            'total_points': attempt.quiz.total_points,
+            'is_evaluated': False,
+            'updated_answers': updated_answers
+        })
+
+
+class InstructorQuizAttemptSubmitEvaluationView(APIView):
+    """
+    API view for instructors to submit complete evaluation with feedback.
+    URL: /api/instructor/attempts/<attempt_id>/submit-evaluation/
+    """
+    permission_classes = [IsAuthenticated]
+    
+    @transaction.atomic
+    def post(self, request, attempt_id):
+        """Submit complete evaluation with all scores and feedback (finalize)"""
+        attempt = get_object_or_404(QuizAttempt, id=attempt_id)
+        
+        # Verify instructor owns the quiz
+        if attempt.quiz.creator != request.user:
+            return Response(
+                {'error': 'You can only evaluate attempts for quizzes you created'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if attempt.status != 'completed':
+            return Response(
+                {'error': 'This attempt is not completed yet'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate and process scores
+        serializer = BulkQuizAttemptEvaluationUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        scores_data = serializer.validated_data['scores']
+        
+        # Update all answers
+        total_score = 0
+        updated_answers = []
+        
+        for score_data in scores_data:
+            answer_id = score_data['answer_id']
+            score_awarded = score_data['score_awarded']
+            feedback = score_data.get('feedback', '')
+            
+            try:
+                answer = UserAnswer.objects.get(id=answer_id, attempt=attempt)
+                
+                # Validate score
+                max_points = answer.question.points
+                if score_awarded > max_points:
+                    return Response(
+                        {'error': f'Score {score_awarded} exceeds maximum points {max_points} for question {answer.question.id}'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                # Update answer
+                answer.score_awarded = score_awarded
+                answer.is_manually_graded = True
+                answer.graded_by = request.user
+                answer.graded_at = timezone.now()
+                answer.feedback = feedback
+                answer.is_correct = score_awarded > 0
+                answer.save()
+                
+                total_score += score_awarded
+                updated_answers.append({
+                    'answer_id': answer_id,
+                    'question_id': answer.question.id,
+                    'question_text': answer.question.question_text[:100],
+                    'score_awarded': score_awarded,
+                    'max_points': max_points,
+                    'feedback': feedback,
+                })
+                
+            except UserAnswer.DoesNotExist:
+                return Response(
+                    {'error': f'Answer with id {answer_id} not found in this attempt'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Update attempt - FINALIZE
+        attempt.score = total_score
+        attempt.manual_score = total_score
+        attempt.is_evaluated = True
+        attempt.evaluated_at = timezone.now()
+        attempt.evaluated_by = request.user
+        attempt.save()
+        
+        # Calculate score percentage
+        score_percentage = 0
+        if attempt.quiz.total_points > 0:
+            score_percentage = round((total_score / attempt.quiz.total_points) * 100, 2)
+        
+        return Response({
+            'message': 'Evaluation submitted successfully (finalized)',
+            'attempt_id': attempt.id,
+            'student_id': attempt.user.id,
+            'student_name': attempt.user.get_full_name() or attempt.user.username,
+            'total_score': total_score,
+            'total_points': attempt.quiz.total_points,
+            'score_percentage': score_percentage,
+            'is_evaluated': True,
+            'evaluated_at': attempt.evaluated_at,
+            'evaluated_by': request.user.get_full_name() or request.user.username,
+            'updated_answers': updated_answers
+        })
+
+class QuizzesNeedingEvaluationView(generics.ListAPIView):
+    """
+    API view to return quizzes that have attempts needing evaluation.
+    URL: /api/instructor/quizzes/needing-evaluation/
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = QuizEvaluationStatusSerializer
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['title', 'description', 'category']
+    ordering_fields = ['created_at', 'title', 'total_attempts', 'pending_evaluation']
+    ordering = ['-created_at']
+    
+    def get_queryset(self):
+        """Get quizzes created by the instructor that have pending evaluations"""
+        user = self.request.user
+        
+        # Get all quizzes created by the instructor
+        quizzes = Quiz.objects.filter(creator=user)
+        
+        # Annotate with attempt statistics
+        quizzes = quizzes.annotate(
+            total_attempts=Count('attempts', filter=Q(attempts__status='completed')),
+            pending_evaluation=Count(
+                'attempts',
+                filter=Q(
+                    attempts__status='completed',
+                    attempts__is_evaluated=False
+                )
+            ),
+            evaluated=Count(
+                'attempts',
+                filter=Q(
+                    attempts__status='completed',
+                    attempts__is_evaluated=True
+                )
+            )
+        )
+        
+        # Only return quizzes that have pending evaluations
+        quizzes = quizzes.filter(pending_evaluation__gt=0)
+        
+        # Optional filters
+        category = self.request.query_params.get('category')
+        if category:
+            quizzes = quizzes.filter(category__icontains=category)
+        
+        has_short_answer = self.request.query_params.get('has_short_answer')
+        if has_short_answer and has_short_answer.lower() == 'true':
+            quizzes = quizzes.filter(questions__question_type='short_answer').distinct()
+        
+        return quizzes.select_related('creator').prefetch_related('attempts__user')
+    
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        
+        # Get total pending attempts count
+        total_pending = QuizAttempt.objects.filter(
+            quiz__creator=request.user,
+            status='completed',
+            is_evaluated=False
+        ).count()
+        
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response({
+                'total_quizzes_with_pending': queryset.count(),
+                'total_pending_attempts': total_pending,
+                'quizzes': serializer.data
+            })
+        
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            'total_quizzes_with_pending': queryset.count(),
+            'total_pending_attempts': total_pending,
+            'quizzes': serializer.data
         })

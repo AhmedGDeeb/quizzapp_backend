@@ -68,9 +68,13 @@ from attempts.views import (
     QuizResultView, 
     QuizAttemptResultView,
     InstructorQuizResultsView,
+    QuizzesNeedingEvaluationView,
     StudentAttemptsListView,
     StudentAttemptDetailView,
     StudentQuizAttemptsView,
+    InstructorQuizAttemptsForEvaluationView,
+    InstructorQuizAttemptEvaluateView,
+    InstructorQuizAttemptSubmitEvaluationView,
     leaderboard
 )
 
@@ -194,8 +198,12 @@ urlpatterns = [
     # ==================== Instructor Endpoints ===================
     path('api/instructors/', InstructorListView.as_view(), name='instructor-list'),
     path('api/instructor/quizzes/<int:quiz_id>/results/',  InstructorQuizResultsView.as_view(),  name='instructor-quiz-results'),
+    path('api/instructor/quizzes/needing-evaluation/', QuizzesNeedingEvaluationView.as_view(), name='quizzes-needing-evaluation'),
+    path('api/instructor/quizzes/<int:quiz_id>/attempts/evaluate/',  InstructorQuizAttemptsForEvaluationView.as_view(), name='instructor-quiz-attempts-evaluate'),
+    path('api/instructor/attempts/<int:attempt_id>/submit-evaluation/', InstructorQuizAttemptSubmitEvaluationView.as_view(),  name='instructor-attempt-submit-evaluation'),
+    # path('instructor/attempts/<int:attempt_id>/evaluate/', InstructorQuizAttemptEvaluateView.as_view(), name='instructor-attempt-evaluate'),
 
-    # ==================== Instructor Endpoints ===================
+    # ==================== Student Endpoints ===================
     path('api/student/attempts/', StudentAttemptsListView.as_view(), name='student-attempts-list'),
     path('api/student/attempts/<int:id>', StudentAttemptDetailView.as_view(), name='student-attempt-detail'),
     path('api/student/attempts/quizzes/<int:quiz_id>/', StudentQuizAttemptsView.as_view(), name='student-quiz-attempts'),

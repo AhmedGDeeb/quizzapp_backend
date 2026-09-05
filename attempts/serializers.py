@@ -695,3 +695,285 @@ class StudentAttemptDetailSerializer(serializers.ModelSerializer):
         answers_data.sort(key=lambda x: x.get('order_index', 0))
         
         return answers_data
+
+class QuestionForEvaluationSerializer(serializers.ModelSerializer):
+    """
+    Serializer for questions in evaluation context
+    """
+    choices = ChoiceSerializer(many=True, read_only=True)
+    correct_answer = AnswerSerializer(read_only=True)
+    
+    class Meta:
+        model = Question
+        fields = (
+            'id',
+            'question_text',
+            'question_type',
+            'question_type_display',
+            'points',
+            'order_index',
+            'choices',
+            'correct_answer',
+            'has_choices',
+        )
+
+class UserAnswerForEvaluationSerializer(serializers.ModelSerializer):
+    """
+    Serializer for user answers in evaluation context
+    """
+    question_text = serializers.CharField(source='question.question_text', read_only=True)
+    question_type = serializers.CharField(source='question.question_type', read_only=True)
+    points = serializers.IntegerField(source='question.points', read_only=True)
+    max_points = serializers.IntegerField(source='question.points', read_only=True)
+    selected_choice_text = serializers.SerializerMethodField()
+    correct_choices = serializers.SerializerMethodField()
+    correct_answer_text = serializers.SerializerMethodField()
+    all_choices = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = UserAnswer
+        fields = (
+            'id',
+            'question',
+            'question_text',
+            'question_type',
+            'points',
+            'max_points',
+            'selected_choice',
+            'selected_choice_ids',
+            'selected_choice_text',
+            'text_answer',
+            'is_correct',
+            'answered_at',
+            'all_choices',
+            'correct_choices',
+            'correct_answer_text',
+            'score_awarded',  # Custom field for instructor to set score
+        )
+        read_only_fields = ('is_correct',)
+    
+    def get_selected_choice_text(self, obj):
+        if obj.selected_choice:
+            return obj.selected_choice.choice_text
+        elif obj.selected_choice_ids:
+            choices = Choice.objects.filter(id__in=obj.selected_choice_ids)
+            return [choice.choice_text for choice in choices]
+        return None
+    
+    def get_all_choices(self, obj):
+        choices = obj.question.choices.all()
+        return ChoiceSerializer(choices, many=True).data
+    
+    def get_correct_choices(self, obj):
+        question = obj.question
+        if question.question_type in ['mcq', 'true_false']:
+            correct_choices = question.choices.filter(is_correct=True)
+            return ChoiceSerializer(correct_choices, many=True).data
+        return None
+    
+    def get_correct_answer_text(self, obj):
+        question = obj.question
+        if question.question_type == 'short_answer' and hasattr(question, 'correct_answer'):
+            return question.correct_answer.correct_answer_text
+        return None
+
+
+class QuizAttemptForEvaluationSerializer(serializers.ModelSerializer):
+    """
+    Serializer for quiz attempt in evaluation context
+    """
+    student_id = serializers.IntegerField(source='user.id', read_only=True)
+    student_name = serializers.SerializerMethodField()
+    student_email = serializers.EmailField(source='user.email', read_only=True)
+    quiz_title = serializers.CharField(source='quiz.title', read_only=True)
+    quiz_description = serializers.CharField(source='quiz.description', read_only=True)
+    total_questions = serializers.IntegerField(source='quiz.question_count', read_only=True)
+    total_points = serializers.IntegerField(source='quiz.total_points', read_only=True)
+    answers = serializers.SerializerMethodField()
+    score_percentage = serializers.SerializerMethodField()
+    time_taken = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = QuizAttempt
+        fields = (
+            'id',
+            'student_id',
+            'student_name',
+            'student_email',
+            'quiz',
+            'quiz_title',
+            'quiz_description',
+            'status',
+            'score',
+            'score_percentage',
+            'total_questions',
+            'total_points',
+            'start_time',
+            'end_time',
+            'time_taken',
+            'answers',
+        )
+    
+    def get_student_name(self, obj):
+        user = obj.user
+        if user.first_name and user.last_name:
+            return f"{user.first_name} {user.last_name}"
+        return user.username
+    
+    def get_score_percentage(self, obj):
+        total_points = obj.quiz.total_points
+        if total_points == 0:
+            return 0.0
+        return round((obj.score / total_points) * 100, 2)
+    
+    def get_time_taken(self, obj):
+        if obj.end_time and obj.start_time:
+            duration = obj.end_time - obj.start_time
+            return {
+                'minutes': int(duration.total_seconds() // 60),
+                'seconds': int(duration.total_seconds() % 60),
+                'total_seconds': duration.total_seconds()
+            }
+        return None
+    
+    def get_answers(self, obj):
+        """Get all answers with evaluation data"""
+        user_answers = obj.answers.all().select_related('question', 'selected_choice')
+        
+        # Get all questions (including unanswered)
+        all_questions = obj.quiz.get_questions_ordered()
+        answered_question_ids = [answer.question_id for answer in user_answers]
+        
+        answers_data = []
+        
+        # Add answered questions
+        for answer in user_answers:
+            data = UserAnswerForEvaluationSerializer(answer).data
+            # Add score_awarded field (default to points if correct, 0 if incorrect)
+            if answer.is_correct:
+                data['score_awarded'] = answer.question.points
+            else:
+                data['score_awarded'] = 0
+            answers_data.append(data)
+        
+        # Add unanswered questions
+        for question in all_questions:
+            if question.id not in answered_question_ids:
+                answers_data.append({
+                    'id': None,
+                    'question': question.id,
+                    'question_text': question.question_text,
+                    'question_type': question.question_type,
+                    'points': question.points,
+                    'max_points': question.points,
+                    'selected_choice': None,
+                    'selected_choice_ids': None,
+                    'selected_choice_text': None,
+                    'text_answer': None,
+                    'is_correct': None,
+                    'answered_at': None,
+                    'all_choices': ChoiceSerializer(question.choices.all(), many=True).data if question.has_choices else [],
+                    'correct_choices': ChoiceSerializer(question.choices.filter(is_correct=True), many=True).data if question.question_type in ['mcq', 'true_false'] else None,
+                    'correct_answer_text': question.correct_answer.correct_answer_text if question.question_type == 'short_answer' and hasattr(question, 'correct_answer') else None,
+                    'score_awarded': 0,
+                    'status': 'unanswered'
+                })
+        
+        # Sort by order_index
+        answers_data.sort(key=lambda x: x.get('order_index', 0) if 'order_index' in x else 0)
+        
+        return answers_data
+
+
+class QuizAttemptEvaluationUpdateSerializer(serializers.Serializer):
+    """
+    Serializer for updating scores and feedback for individual answers
+    """
+    answer_id = serializers.IntegerField(required=True)
+    score_awarded = serializers.FloatField(required=True, min_value=0)
+    feedback = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    
+    def validate_score_awarded(self, value):
+        """Validate that score doesn't exceed max points"""
+        if value < 0:
+            raise serializers.ValidationError("Score cannot be negative")
+        return value
+
+class BulkQuizAttemptEvaluationUpdateSerializer(serializers.Serializer):
+    """
+    Serializer for bulk updating scores and feedback
+    """
+    scores = serializers.ListField(
+        child=QuizAttemptEvaluationUpdateSerializer(),
+        allow_empty=False
+    )
+    
+    def validate(self, data):
+        """Validate all scores"""
+        scores = data.get('scores', [])
+        if not scores:
+            raise serializers.ValidationError("At least one score must be provided")
+        return data
+
+class QuizEvaluationStatusSerializer(serializers.ModelSerializer):
+    """
+    Serializer for quiz evaluation status
+    """
+    total_attempts = serializers.IntegerField()
+    pending_evaluation = serializers.IntegerField()
+    evaluated = serializers.IntegerField()
+
+    # Use SerializerMethodField for computed fields
+    needs_attention = serializers.SerializerMethodField()
+    latest_attempt = serializers.SerializerMethodField()
+    total_questions = serializers.SerializerMethodField()
+    total_points = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Quiz
+        fields = (
+            'id',
+            'title',
+            'description',
+            'category',
+            'total_questions',
+            'total_points',
+            'created_at',
+            'total_attempts',
+            'pending_evaluation',
+            'evaluated',
+            'needs_attention',
+            'latest_attempt',
+        )
+    
+    def get_total_questions(self, obj):
+        """Get total questions count"""
+        return obj.question_count  # Using the property
+    
+    def get_total_points(self, obj):
+        """Get total points"""
+        return obj.total_points  # Using the property
+    
+    def get_latest_attempt(self, obj):
+        """Get the latest attempt that needs evaluation"""
+        latest = QuizAttempt.objects.filter(
+            quiz=obj,
+            status='completed',
+            is_evaluated=False
+        ).select_related('user').order_by('-end_time').first()
+        
+        if latest:
+            return {
+                'attempt_id': latest.id,
+                'student_name': latest.user.get_full_name() or latest.user.username,
+                'student_email': latest.user.email,
+                'completed_at': latest.end_time,
+            }
+        return None
+
+    def get_needs_attention(self, obj):
+        """Determine if quiz needs attention"""
+        # Check if there are pending evaluations
+        if hasattr(obj, 'pending_evaluation'):
+            return obj.pending_evaluation > 0
+        return False
