@@ -201,7 +201,7 @@ urlpatterns = [
     path('api/instructor/quizzes/needing-evaluation/', QuizzesNeedingEvaluationView.as_view(), name='quizzes-needing-evaluation'),
     path('api/instructor/quizzes/<int:quiz_id>/attempts/evaluate/',  InstructorQuizAttemptsForEvaluationView.as_view(), name='instructor-quiz-attempts-evaluate'),
     path('api/instructor/attempts/<int:attempt_id>/submit-evaluation/', InstructorQuizAttemptSubmitEvaluationView.as_view(),  name='instructor-attempt-submit-evaluation'),
-    # path('instructor/attempts/<int:attempt_id>/evaluate/', InstructorQuizAttemptEvaluateView.as_view(), name='instructor-attempt-evaluate'),
+    path('api/instructor/attempts/<int:attempt_id>/evaluate/', InstructorQuizAttemptEvaluateView.as_view(), name='instructor-attempt-evaluate'),
 
     # ==================== Student Endpoints ===================
     path('api/student/attempts/', StudentAttemptsListView.as_view(), name='student-attempts-list'),
