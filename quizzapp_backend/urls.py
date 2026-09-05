@@ -220,12 +220,12 @@ urlpatterns = [
     # path('api/questions/my-questions/', MyQuestionsView.as_view(), name='my-questions'),
     
     # Question Assignment (quiz ID in request body)
-    path('api/questions/assign/', AssignQuestionToQuizView.as_view(), name='assign-question'),
-    path('api/questions/unassign/', UnassignQuestionFromQuizView.as_view(), name='unassign-question'),
+    # path('api/questions/assign/', AssignQuestionToQuizView.as_view(), name='assign-question'),
+    # path('api/questions/unassign/', UnassignQuestionFromQuizView.as_view(), name='unassign-question'),
     
     # ==================== Standalone Question Endpoints ====================
-    path('api/standalone-questions/', standalone_question_list, name='standalone-question-list'),
-    path('api/standalone-questisons/<int:pk>/', standalone_question_detail, name='standalone-question-detail'),
+    # path('api/standalone-questions/', standalone_question_list, name='standalone-question-list'),
+    # path('api/standalone-questisons/<int:pk>/', standalone_question_detail, name='standalone-question-detail'),
 
     # ==================== Choice Endpoints ====================
     path('api/choices/', choice_list, name='choice-list'),

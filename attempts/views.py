@@ -64,11 +64,11 @@ class SubmitAnswerView(generics.GenericAPIView):
             question=question
         ).first()
         
+        # Get the selected choice IDs from serializer - KEEP THIS
         selected_choice_ids = serializer.validated_data.get('selected_choice_ids', [])
-
+        
         # Initialize variables
         is_correct = False
-        selected_choice_ids = []
         text_answer = None
         correct_answer_text = None
         user_answer_text = None
@@ -85,8 +85,6 @@ class SubmitAnswerView(generics.GenericAPIView):
 
             # Create user answer text (join selected choices)
             selected_choices = Choice.objects.filter(id__in=selected_choice_ids)
-            
-            # Create user answer text (join selected choices)
             user_answer_text = ", ".join([choice.choice_text for choice in selected_choices])
             
             # Get correct answer text
@@ -108,10 +106,7 @@ class SubmitAnswerView(generics.GenericAPIView):
             else:
                 is_correct = False
         
-        # Store selected choice IDs as comma-separated string
-        selected_choice_ids = serializer.validated_data.get('selected_choice_ids', [])
-        
-        # Update or create answer
+        # Update or create answer - REMOVED THE DUPLICATE LINE
         if existing_answer:
             existing_answer.selected_choice = None
             existing_answer.selected_choice_ids = selected_choice_ids
